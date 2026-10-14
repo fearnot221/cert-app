@@ -29,7 +29,7 @@ import { authorize, userFor, fail, audit } from "./auth.js";
 import { config } from "@cert/config";
 import { renderVersionPdf } from "../../../packages/domain/src/rendering.js";
 import { parseImportFile } from "../../../packages/domain/src/spreadsheet-import.js";
-import { isPdf, rasterizePdfBackground } from "../../../packages/domain/src/pdf-background.js";
+import { convertPdfBackground, isPdf } from "../../../packages/domain/src/pdf-background.js";
 import { registerVerificationRoutes } from "./verification.js";
 import { registerLifecycleRoutes } from "./lifecycle.js";
 import { zipSync } from "fflate";
@@ -316,7 +316,13 @@ export async function registerRoutes(app: FastifyInstance) {
             ...(document.elements.some((e) => e.fontFamily === "Iansui")
               ? { iansui: { version: IANSUI_VERSION, sha256: IANSUI_SHA256 } }
               : {}),
-            background: asset ? { id: asset.id, sha256: asset.sha256 } : null,
+            background: asset
+              ? {
+                  id: asset.id,
+                  sha256: asset.sha256,
+                  ...(asset.vectorSha256 ? { vectorSha256: asset.vectorSha256 } : {}),
+                }
+              : null,
           },
         },
       });
@@ -343,10 +349,12 @@ export async function registerRoutes(app: FastifyInstance) {
     if (!file) fail(400, "請選擇圖片或 PDF");
     let bytes = await file.toBuffer();
     let pdfPages = 0;
+    let vector: Buffer | undefined;
     if (isPdf(bytes)) {
       try {
-        const page = await rasterizePdfBackground(bytes);
+        const page = await convertPdfBackground(bytes);
         bytes = page.png;
+        vector = page.pdf;
         pdfPages = page.pages;
       } catch (error) {
         req.log.warn({ err: error }, "PDF background rasterisation failed");
@@ -372,6 +380,8 @@ export async function registerRoutes(app: FastifyInstance) {
     const id = randomUUID();
     const storageKey = `${org}/assets/${id}.png`;
     await storage.put(storageKey, safe.data);
+    const vectorStorageKey = vector ? `${org}/assets/${id}.pdf` : undefined;
+    if (vector) await storage.put(vectorStorageKey!, vector);
     const asset = await db.asset.create({
       data: {
         id,
@@ -383,6 +393,7 @@ export async function registerRoutes(app: FastifyInstance) {
         width: safe.info.width,
         height: safe.info.height,
         size: safe.data.length,
+        ...(vector ? { vectorStorageKey, vectorSha256: sha(vector) } : {}),
       },
     });
     await audit(org, user.id, "asset.uploaded", id);

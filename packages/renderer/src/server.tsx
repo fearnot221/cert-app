@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { renderToStaticMarkup } from "react-dom/server";
 import { chromium } from "playwright";
 import * as fontkit from "fontkit";
+import { PDFDocument, PDFName, PDFArray, beginMarkedContent, endMarkedContent } from "pdf-lib";
 import {
   FONT_SHA256,
   IANSUI_SHA256,
@@ -31,7 +32,11 @@ export { FONT_SHA256 } from "@cert/contracts";
 export interface RenderPdfOptions {
   document: TemplateDocument;
   data: CertificateData;
-  background?: { id: string; mimeType: string; bytes: Buffer };
+  /**
+   * `bytes` is the raster background. `vector`, when present, is the single-page vector PDF a PDF
+   * upload was converted from: the certificate is then drawn on that page and keeps its vectors.
+   */
+  background?: { id: string; mimeType: string; bytes: Buffer; vector?: Buffer };
   /** Trusted application configuration only. Never expose this field in an HTTP request schema. */
   fontPath?: string;
 }
@@ -95,9 +100,13 @@ async function buildMarkup(
       )
     )
       throw new Error("不支援背景格式");
-    if (options.background.bytes.byteLength > 20 * 1024 * 1024)
+    if (
+      options.background.bytes.byteLength > 20 * 1024 * 1024 ||
+      (options.background.vector?.byteLength ?? 0) > 20 * 1024 * 1024
+    )
       throw new Error("背景檔案超過 20 MB");
-    assetUrls[document.backgroundAssetId] =
+    if (!options.background.vector)
+      assetUrls[document.backgroundAssetId] =
       `data:${options.background.mimeType};base64,${options.background.bytes.toString("base64")}`;
   }
   const body = renderToStaticMarkup(
@@ -113,7 +122,8 @@ async function buildMarkup(
   );
   return {
     document,
-    html: `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; font-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><style>@page{size:${document.widthMm}mm ${document.heightMm}mm;margin:0}html,body{margin:0;padding:0}*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}</style></head><body>${body}</body></html>`,
+    // With a vector background the page is printed transparent and laid over it afterwards.
+    html: `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; font-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><style>@page{size:${document.widthMm}mm ${document.heightMm}mm;margin:0}html,body{margin:0;padding:0}*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}${options.background?.vector ? "[data-certificate-page]{background-color:transparent!important}" : ""}</style></head><body>${body}</body></html>`,
   };
 }
 
@@ -172,7 +182,7 @@ export async function renderPdf(options: RenderPdfOptions): Promise<Buffer> {
       `(${fitCertificateText.toString()})(document)`,
     )) as string[];
     if (errors.length) throw new Error(errors.join("；"));
-    return await page.pdf({
+    const pdf = await page.pdf({
       width: `${template.widthMm}mm`,
       height: `${template.heightMm}mm`,
       margin: { top: 0, right: 0, bottom: 0, left: 0 },
@@ -181,8 +191,37 @@ export async function renderPdf(options: RenderPdfOptions): Promise<Buffer> {
       displayHeaderFooter: false,
       tagged: true,
     });
+    return options.background?.vector
+      ? await underlayVectorBackground(pdf, options.background.vector)
+      : pdf;
   } finally {
     clearTimeout(deadline);
     await browser.close();
   }
+}
+
+/**
+ * Draws the vector background page underneath the certificate Chromium printed, scaled and centred
+ * like the editor's `object-fit: cover`. The certificate page itself is kept as is, so its text stays
+ * selectable and its tagged structure intact; the background is marked as an artifact.
+ */
+export async function underlayVectorBackground(certificate: Buffer, background: Buffer): Promise<Buffer> {
+  const doc = await PDFDocument.load(certificate, { updateMetadata: false });
+  const page = doc.getPage(0);
+  const [embedded] = await doc.embedPdf(background, [0]);
+  if (!embedded) throw new Error("背景向量檔無法讀取");
+  const { width, height } = page.getSize();
+  const scale = Math.max(width / embedded.width, height / embedded.height);
+  const drawn = { width: embedded.width * scale, height: embedded.height * scale };
+  page.pushOperators(beginMarkedContent("Artifact"));
+  page.drawPage(embedded, { x: (width - drawn.width) / 2, y: (height - drawn.height) / 2, ...drawn });
+  page.pushOperators(endMarkedContent());
+  // pdf-lib appends the drawing as the last content stream; move it first so it sits underneath.
+  const contents = page.node.Contents();
+  if (!(contents instanceof PDFArray)) throw new Error("證書頁面內容格式不符");
+  const last = contents.get(contents.size() - 1);
+  contents.remove(contents.size() - 1);
+  contents.insert(0, last);
+  page.node.set(PDFName.of("Contents"), contents);
+  return Buffer.from(await doc.save({ useObjectStreams: false }));
 }

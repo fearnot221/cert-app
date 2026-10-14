@@ -48,13 +48,13 @@ test("自訂動態欄位、常駐流水號欄位、PDF 背景與組織流水號�
   await expect(page.getByRole("alert").filter({ hasText: "有 1 個文字框使用這個欄位" })).toBeVisible();
   await page.getByRole("button", { name: "取消" }).click();
 
-  // A PDF background is accepted and turned into an image from its first page.
+  // A PDF background is accepted; its first page is used, and certificates keep it as vectors.
   const printer = await page.context().newPage();
   await printer.setContent('<div style="height:100vh;background:#f3efe2;font:40px serif">背景 PDF</div>');
   const pdf = await printer.pdf({ width: "297mm", height: "210mm", printBackground: true });
   await printer.close();
   await page.locator("input[type=file]").setInputFiles({ name: "background.pdf", mimeType: "application/pdf", buffer: pdf });
-  await expect(page.getByText(/PDF 已轉為背景圖.*請儲存草稿/)).toBeVisible();
+  await expect(page.getByText(/PDF 已設為背景.*向量畫質.*請儲存草稿/)).toBeVisible();
 
   await page.getByRole("button", { name: "儲存草稿", exact: true }).click();
   await expect(page.getByText("草稿已儲存。")).toBeVisible();

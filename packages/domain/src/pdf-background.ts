@@ -13,11 +13,16 @@ const TARGET_DPI = 300;
 export const isPdf = (bytes: Buffer) => bytes.subarray(0, 5).toString("latin1") === "%PDF-";
 
 /**
- * Rasterises the first page of an uploaded PDF to PNG with poppler (`pdfinfo` + `pdftoppm`), so a
- * designer's PDF can be used as a certificate background. The PDF itself is never stored or served:
- * only the PNG goes on, through the same re-encoding as an uploaded image.
+ * Turns the first page of an uploaded PDF into a certificate background, with poppler.
+ *
+ * `pdftocairo -pdf` redraws page 1 into a fresh single-page PDF: vector shapes, text and embedded
+ * images keep their full quality, while scripts, forms, links, attachments and every other page are
+ * dropped. That clean page is what certificates are drawn on. The uploaded file itself is never
+ * stored or served. A PNG of the same page (up to 300 DPI) is made for the editor and thumbnails.
  */
-export async function rasterizePdfBackground(bytes: Buffer): Promise<{ png: Buffer; pages: number }> {
+export async function convertPdfBackground(
+  bytes: Buffer,
+): Promise<{ pdf: Buffer; png: Buffer; pages: number }> {
   const dir = await mkdtemp(join(tmpdir(), "cert-pdf-"));
   try {
     const input = join(dir, "in.pdf");
@@ -27,16 +32,18 @@ export async function rasterizePdfBackground(bytes: Buffer): Promise<{ png: Buff
     const pages = Number(/^Pages:\s+(\d+)/m.exec(stdout)?.[1] ?? 0);
     const size = /^Page\s+1 size:\s+([\d.]+) x ([\d.]+) pts/m.exec(stdout);
     if (!pages || !size) throw new Error("無法讀取 PDF 頁面尺寸");
+    const clean = join(dir, "clean.pdf");
+    await run("pdftocairo", ["-pdf", "-f", "1", "-l", "1", input, clean], options);
     const widthIn = Number(size[1]) / POINTS_PER_INCH;
     const heightIn = Number(size[2]) / POINTS_PER_INCH;
     const dpi = Math.floor(Math.min(TARGET_DPI, Math.sqrt(MAX_PIXELS / (widthIn * heightIn))));
     if (!Number.isFinite(dpi) || dpi < 36) throw new Error("PDF 頁面尺寸無效");
     await run(
       "pdftoppm",
-      ["-png", "-f", "1", "-l", "1", "-singlefile", "-r", String(dpi), input, join(dir, "page")],
+      ["-png", "-singlefile", "-r", String(dpi), clean, join(dir, "page")],
       options,
     );
-    return { png: await readFile(join(dir, "page.png")), pages };
+    return { pdf: await readFile(clean), png: await readFile(join(dir, "page.png")), pages };
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

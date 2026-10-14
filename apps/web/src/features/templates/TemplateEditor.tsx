@@ -297,7 +297,7 @@ export function TemplateEditor({
       );
       action.setSuccess(
         asset.source === "pdf"
-          ? `PDF 已轉為背景圖${(asset.pdfPages ?? 1) > 1 ? `（共 ${asset.pdfPages} 頁，使用第 1 頁）` : ""}，請儲存草稿。`
+          ? `PDF 已設為背景${(asset.pdfPages ?? 1) > 1 ? `（共 ${asset.pdfPages} 頁，使用第 1 頁）` : ""}，證書會保留原本的向量畫質。請儲存草稿。`
           : "背景已上傳，請儲存草稿。",
       );
     });

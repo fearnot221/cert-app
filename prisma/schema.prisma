@@ -97,6 +97,9 @@ model Asset {
   width Int
   height Int
   size Int
+  /// Single-page vector PDF a PDF upload was converted from; certificates are drawn on it.
+  vectorStorageKey String?
+  vectorSha256 String?
   createdAt DateTime @default(now())
   @@unique([id,organizationId])
   @@index([organizationId,createdAt])

@@ -2329,7 +2329,7 @@ describe('certificate serial numbers, built-in fields and PDF backgrounds', () =
     expect(keys).toContain('hours');
   });
 
-  it('accepts a PDF background, stores only the rasterised first page, and rejects broken PDFs', async () => {
+  it('keeps a PDF background as vectors on issued certificates, with a PNG preview, and rejects broken PDFs', async () => {
     const created = await owner.request('POST', `/api/organizations/${orgA}/batches`, {
       templateVersionId: versionA,
       eventName: 'PDF 背景',
@@ -2345,6 +2345,31 @@ describe('certificate serial numbers, built-in fields and PDF backgrounds', () =
     const asset = await db.asset.findUniqueOrThrow({ where: { id: uploaded.json().id } });
     const stored = await storage.get(asset.storageKey);
     expect((await sharp(stored).metadata()).format).toBe('png');
+    const vector = await storage.get(asset.vectorStorageKey!);
+    expect(vector.subarray(0, 5).toString()).toBe('%PDF-');
+    expect(createHash('sha256').update(vector).digest('hex')).toBe(asset.vectorSha256);
+
+    // Certificates from a template on that background are drawn on the vector page, not the PNG.
+    const document = { ...createDefaultDocument(), backgroundAssetId: asset.id };
+    const template = await owner.request('POST', `/api/organizations/${orgA}/templates`, { name: '向量背景模板', document });
+    expect(template.statusCode, template.body).toBe(200);
+    const version = await owner.request('POST', `/api/organizations/${orgA}/templates/${template.json().id}/publish`);
+    expect(version.statusCode, version.body).toBe(200);
+    const manifest = (await db.templateVersion.findUniqueOrThrow({ where: { id: version.json().id } })).assetManifest;
+    expect(manifest).toMatchObject({ background: { id: asset.id, sha256: asset.sha256, vectorSha256: asset.vectorSha256 } });
+    const onVector = await owner.request('POST', `/api/organizations/${orgA}/batches`, {
+      templateVersionId: version.json().id,
+      eventName: '向量背景',
+      csv: `recipient_name,recipient_email\n向量,${email('pdf-vector')}`,
+      idempotencyKey: randomUUID(),
+    });
+    expect(onVector.statusCode, onVector.body).toBe(200);
+    const vectorRow = await db.batchRow.findFirstOrThrow({ where: { batchId: onVector.json().id } });
+    const rendered = await owner.request('POST', `/api/organizations/${orgA}/batches/${onVector.json().id}/preview`, { rowId: vectorRow.id });
+    expect(rendered.statusCode, rendered.body).toBe(200);
+    const output = rendered.rawPayload.toString('latin1');
+    expect(output).not.toMatch(/\/Subtype\s*\/Image/);
+
     const broken = await owner.upload(`/api/organizations/${orgA}/assets`, 'broken.pdf', Buffer.from('%PDF-1.7\nnot really a pdf'));
     expect(broken.statusCode).toBe(400);
   });

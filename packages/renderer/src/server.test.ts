@@ -1,5 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
+import { inflateSync } from "node:zlib";
+import { PDFArray, PDFDocument, PDFRawStream, rgb } from "pdf-lib";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createElement } from "react";
 import { describe, expect, it } from "vitest";
@@ -13,6 +15,7 @@ import {
   DEFAULT_FONT_PATH,
   IANSUI_FONT_PATH,
   renderPdf,
+  underlayVectorBackground,
   validateGlyphs,
 } from "./server";
 
@@ -156,3 +159,25 @@ it.runIf(process.env.RENDERER_INTEGRATION === '1')('decodes the actual QR printe
     expect(decoded?.data).toBe(verification);
   } finally { await rm(dir, { recursive: true, force: true }); }
 }, 45000);
+
+describe("vector backgrounds", () => {
+  it("draws the background page underneath the certificate, covering the page", async () => {
+    const certificate = await PDFDocument.create();
+    certificate.addPage([842, 595]).drawText("certificate", { x: 40, y: 40 });
+    const background = await PDFDocument.create();
+    background.addPage([400, 400]).drawRectangle({ x: 0, y: 0, width: 400, height: 400, color: rgb(0.9, 0.85, 0.7) });
+    const merged = await PDFDocument.load(
+      await underlayVectorBackground(Buffer.from(await certificate.save()), Buffer.from(await background.save())),
+    );
+    const page = merged.getPage(0);
+    expect(page.getSize()).toEqual({ width: 842, height: 595 });
+    const contents = page.node.Contents() as PDFArray;
+    const text = (index: number) => {
+      const stream = merged.context.lookup(contents.get(index)) as PDFRawStream;
+      return inflateSync(stream.contents).toString("latin1");
+    };
+    // The square background is scaled by 842/400 to cover the page and centred vertically.
+    expect(text(0)).toMatch(/\/Artifact BMC[\s\S]*0 -123\.5 cm[\s\S]*2\.105 0 0 2\.105 0 0 cm[\s\S]*Do\s+Q\s+EMC/);
+    expect(text(contents.size() - 1)).not.toContain("/Artifact");
+  });
+});

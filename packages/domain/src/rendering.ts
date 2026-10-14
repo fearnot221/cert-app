@@ -23,7 +23,9 @@ const manifestSchema = z.object({
       sha256: z.literal(IANSUI_SHA256),
     })
     .optional(),
-  background: z.object({ id: z.string(), sha256: z.string() }).nullable(),
+  background: z
+    .object({ id: z.string(), sha256: z.string(), vectorSha256: z.string().optional() })
+    .nullable(),
 });
 export async function renderVersionPdf(
   version: {
@@ -58,7 +60,22 @@ export async function renderVersionPdf(
       manifest.background.sha256
     )
       throw new Error("背景資產完整性檢查失敗");
-    background = { id: asset.id, mimeType: asset.mimeType, bytes };
+    let vector: Buffer | undefined;
+    // Published from a PDF upload: draw on the vector page, not the PNG preview.
+    if (manifest.background.vectorSha256) {
+      if (
+        !asset.vectorStorageKey ||
+        asset.vectorSha256 !== manifest.background.vectorSha256
+      )
+        throw new Error("背景向量檔與發布時的版本不符");
+      vector = await storage.get(asset.vectorStorageKey);
+      if (
+        createHash("sha256").update(vector).digest("hex") !==
+        manifest.background.vectorSha256
+      )
+        throw new Error("背景向量檔完整性檢查失敗");
+    }
+    background = { id: asset.id, mimeType: asset.mimeType, bytes, vector };
   } else if (manifest.background) throw new Error("模板背景與發布版本不符");
   return renderPdf({ document, data, background });
 }
