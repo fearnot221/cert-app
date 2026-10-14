@@ -32,9 +32,12 @@ Web http://localhost:5173、API http://localhost:3001、Mailpit http://localhost
 
 | 位置 | 責任 |
 | --- | --- |
-| apps/web/src/pages/TemplateEditor.tsx | 設計器與 QR 位置控制 |
-| apps/web/src/pages/CreateBatch.tsx、Batches.tsx、Lifecycle.tsx | 名單、產製／通知、活動／證書操作 |
-| apps/web/src/pages/Verification.tsx | 匿名驗證頁與分享 QR |
+| apps/web/src/app/router.tsx、AppShell.tsx、session.tsx | 路由、頂部導覽外框、登入狀態 |
+| apps/web/src/features/landing | 公開首頁與真偽查詢入口 |
+| apps/web/src/features/templates/TemplateEditor.tsx | 設計器與 QR 位置控制 |
+| apps/web/src/features/batches（CreateBatchPage、BatchDetailPage、NotifyPanel、lifecycle） | 名單、產製／通知、活動／證書操作 |
+| apps/web/src/features/verification/VerificationPage.tsx | 匿名驗證頁與分享 QR |
+| apps/web/src/styles/tokens.css | 設計 token（見 DESIGN.md） |
 | apps/api/src/auth.ts | session／CSRF、啟用與密碼恢復 |
 | apps/api/src/routes.ts | 模板／匯入／產製／下載 API |
 | apps/api/src/lifecycle.ts、verification.ts | 撤銷／補發／取消／期限與公開欄位白名單 |

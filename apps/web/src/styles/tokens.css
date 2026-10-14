@@ -1,0 +1,56 @@
+/*
+ * Certfolio design tokens.
+ * Palette and type pairing follow sta-tw.org: white ground, warm ink, soft yellow and soft green.
+ * The one motif is the round verification seal: yellow = issuing, green = verifying.
+ * Components reference these tokens only; a raw hex in a component starts a second palette.
+ */
+@theme {
+  --font-sans: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+  --font-serif: "Noto Serif TC", "Songti TC", "PMingLiU", serif;
+
+  --color-ground: #ffffff;
+  --color-surface: #f5f4f1;
+  --color-surface-strong: #ebe9e4;
+  --color-ink: #363535;
+  --color-ink-hover: #4a4949;
+  --color-ink-active: #252424;
+  --color-muted: #6b6968;
+  --color-line: rgb(54 53 53 / 0.14);
+  --color-line-strong: rgb(54 53 53 / 0.3);
+
+  --color-issue: #ffe184;
+  --color-issue-soft: #fff4cf;
+  --color-issue-ink: #6b4f00;
+  --color-verify: #d9edbf;
+  --color-verify-strong: #badaaf;
+  --color-verify-soft: #eef6e4;
+  --color-verify-ink: #2f5a1f;
+  --color-danger: #b4372f;
+  --color-danger-soft: #fbe7e4;
+  --color-danger-hover: #9a2d26;
+  --color-danger-ink: #7d221c;
+  --color-ink-disabled: #9a9796;
+  --color-issue-dot: #d9a400;
+  --color-issue-strong: #ffd24d;
+  --color-issue-text: #4d3a00;
+  --color-void: #d6d2cc;
+  --color-neutral-dot: #9b9895;
+  --color-verify-dot: #5f9a4a;
+
+  --radius-control: 14px;
+  --radius-panel: 28px;
+  --radius-pill: 999px;
+}
+
+:root {
+  --step-small: 0.8125rem;                                 /* 13px  captions, metadata */
+  --step-body: 1rem;                                       /* 16px  running text in the app */
+  --step-lead: clamp(1.125rem, 1.02rem + 0.45vw, 1.375rem);/* 18–22px supporting lines */
+  --step-head: clamp(1.875rem, 1.3rem + 2.2vw, 3rem);      /* 30–48px page and section headings */
+  --step-display: clamp(3.25rem, 1.2rem + 6.4vw, 6.25rem); /* 52–100px the hero */
+
+  --gutter: clamp(16px, 3.2vw, 48px);
+  --page-max: 1360px;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+}

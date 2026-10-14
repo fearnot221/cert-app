@@ -17,17 +17,17 @@ import {
   MagnifyingGlassIcon,
 } from "@radix-ui/react-icons";
 import { CertificateView } from "@cert/renderer";
-import { api, ApiError, orgPath, post } from "../lib/api";
-import { useAction } from "../lib/hooks";
+import { api, ApiError, orgPath, post } from "../../lib/api";
+import { useAction } from "../../lib/hooks";
 import type {
   Organization,
   Template,
   TemplateDocument,
   TextElement,
-} from "../lib/types";
-import { Alert, Status } from "../components/common";
-import { Button } from "../components/ui/button";
-import { previewData } from "./Templates";
+} from "../../lib/types";
+import { Notice, Status } from "../../ui/feedback";
+import { Button } from "../../ui/Button";
+import { previewData } from "./previewData";
 
 const MM = 96 / 25.4;
 export function TemplateEditor({
@@ -197,7 +197,7 @@ export function TemplateEditor({
       fontSize: 24,
       minFontSize: 12,
       fontWeight: 400,
-      color: "#203432",
+      color: "#363535",
       align: "center",
       text: field ? `{{${field}}}` : "新增文字",
     };
@@ -311,7 +311,7 @@ export function TemplateEditor({
         <div className="editor-actions">
           {canWrite && (
             <Button
-              variant="outline"
+              variant="quiet"
               disabled={action.busy || !dirty || !name.trim() || conflict}
               onClick={saveAction}
             >
@@ -332,14 +332,14 @@ export function TemplateEditor({
         </div>
       </header>
       <div className="editor-feedback">
-        <Alert message={action.error} />
-        <Alert message={action.success} kind="success" />
+        <Notice message={action.error} />
+        <Notice message={action.success} kind="success" />
         {conflict && (
-          <Alert message="另一位編輯者已儲存更新。本次變更沒有覆蓋伺服器版本；請保留所需內容，返回列表重新開啟最新草稿後再編輯。" />
+          <Notice message="另一位編輯者已儲存更新。本次變更沒有覆蓋伺服器版本；請保留所需內容，返回列表重新開啟最新草稿後再編輯。" />
         )}
-        <Alert message={qualityWarning} kind="info" />
+        <Notice message={qualityWarning} kind="info" />
         {layoutErrors.length > 0 && (
-          <Alert message={`版面檢查未通過：${layoutErrors.join("；")}`} />
+          <Notice message={`版面檢查未通過：${layoutErrors.join("；")}`} />
         )}
       </div>
       <div className="editor-layout">
@@ -347,15 +347,15 @@ export function TemplateEditor({
           <section className="editor-section">
             <h2>新增元素</h2>
             <Button
-              variant="outline"
-              className="w-full justify-start"
+              variant="quiet"
+              className="btn-block editor-add"
               disabled={!canWrite}
               onClick={() => addText()}
             >
               <TextIcon />
               固定文字
             </Button>
-            <label className="mt-4">
+            <label className="field">
               動態欄位
               <select
                 value={addField}
@@ -369,8 +369,8 @@ export function TemplateEditor({
               </select>
             </label>
             <Button
-              variant="outline"
-              className="w-full mt-2"
+              variant="quiet"
+              className="btn-block"
               disabled={!canWrite}
               onClick={() => addText(addField)}
             >
@@ -595,7 +595,7 @@ export function TemplateEditor({
         <aside className="editor-right">
           <section className="editor-section">
             <h2>頁面設定</h2>
-            <label>
+            <label className="field">
               紙張尺寸
               <select
                 disabled={!canWrite}
@@ -638,12 +638,12 @@ export function TemplateEditor({
               />
             </div>
           </section>
-          <section className="editor-section"><h2>公開驗證 QR Code</h2><label><input type="checkbox" checked={!!document.verificationQr} disabled={!canWrite} onChange={e => changeDocument(current => { const next = { ...current }; if (e.target.checked) next.verificationQr = { x: current.widthMm - 30, y: current.heightMm - 30, size: 22 }; else delete next.verificationQr; return next; })} />在證書上加入驗證 QR Code</label><p className="field-help">請保留白色邊界，避免文字或背景遮擋。樣張僅供檢查，正式 PDF 使用專屬連結。</p>{document.verificationQr && <div className="property-grid">{(['x','y','size'] as const).map(key => <NumberField key={key} label={key === 'size' ? 'QR 尺寸 mm' : `QR ${key.toUpperCase()} mm`} min={key === 'size' ? 20 : 0} max={key === 'size' ? 80 : 1000} value={document.verificationQr![key]} disabled={!canWrite} onChange={value => changeDocument(current => ({ ...current, verificationQr: { ...current.verificationQr!, [key]: value } }))} />)}</div>}</section>
+          <section className="editor-section"><h2>公開驗證 QR Code</h2><label className="check"><input type="checkbox" checked={!!document.verificationQr} disabled={!canWrite} onChange={e => changeDocument(current => { const next = { ...current }; if (e.target.checked) next.verificationQr = { x: current.widthMm - 30, y: current.heightMm - 30, size: 22 }; else delete next.verificationQr; return next; })} />在證書上加入驗證 QR Code</label><p className="field-help">請保留白色邊界，避免文字或背景遮擋。樣張僅供檢查，正式 PDF 使用專屬連結。</p>{document.verificationQr && <div className="property-grid">{(['x','y','size'] as const).map(key => <NumberField key={key} label={key === 'size' ? 'QR 尺寸 mm' : `QR ${key.toUpperCase()} mm`} min={key === 'size' ? 20 : 0} max={key === 'size' ? 80 : 1000} value={document.verificationQr![key]} disabled={!canWrite} onChange={value => changeDocument(current => ({ ...current, verificationQr: { ...current.verificationQr!, [key]: value } }))} />)}</div>}</section>
           {selected ? (
             <section className="editor-section">
               <h2>文字屬性</h2>
               <fieldset disabled={!canWrite}>
-                <label>
+                <label className="field">
                   文字內容
                   <textarea
                     rows={3}
@@ -706,7 +706,7 @@ export function TemplateEditor({
                     }
                   />
                 </div>
-                <label>
+                <label className="field">
                   字型
                   <select
                     value={selected.fontFamily}
@@ -723,7 +723,7 @@ export function TemplateEditor({
                 </label>
                 <p className="field-help">開源字型 · 網頁與 PDF 共用同一版本</p>
                 <div className="property-grid">
-                  <label>
+                  <label className="field">
                     字重
                     <select
                       value={selected.fontWeight}
@@ -739,7 +739,7 @@ export function TemplateEditor({
                       )}
                     </select>
                   </label>
-                  <label>
+                  <label className="field">
                     文字顏色
                     <input
                       type="color"
@@ -750,7 +750,7 @@ export function TemplateEditor({
                     />
                   </label>
                 </div>
-                <label>
+                <label className="field">
                   文字對齊
                   <select
                     value={selected.align}
@@ -777,10 +777,10 @@ export function TemplateEditor({
                 <p className="field-help">
                   長文字會換行並縮小。仍無法放入文字框時，正式產證會被阻止。
                 </p>
-                <div className="button-row mt-4">
+                <div className="btn-row">
                   <Button
                     size="sm"
-                    variant="outline"
+                    variant="quiet"
                     onClick={() => {
                       const id = crypto.randomUUID();
                       changeDocument((current) => ({
@@ -871,7 +871,7 @@ function NumberField({
     if (bounded !== value) onChange(bounded);
   };
   return (
-    <label>
+    <label className="field">
       {label}
       <input
         type="number"

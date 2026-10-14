@@ -1,0 +1,386 @@
+/* ---------- Template editor: toolbar, three panes, the sheet ---------- */
+.editor {
+  display: flex;
+  flex-direction: column;
+  height: calc(100dvh - 68px);
+  min-height: 560px;
+}
+.editor-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px var(--gutter);
+  background: var(--color-ground);
+}
+.editor-title {
+  flex: 1;
+  min-width: 0;
+}
+.editor-title input {
+  width: 100%;
+  max-width: 480px;
+  min-height: 40px;
+  padding: 4px 10px;
+  margin-left: -10px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: transparent;
+  font-family: var(--font-serif);
+  font-size: 22px;
+  line-height: 1.2;
+  transition: border-color 140ms var(--ease-out), background-color 140ms var(--ease-out);
+}
+.editor-title input:hover:not(:disabled) {
+  background: var(--color-surface);
+}
+.editor-title input:focus-visible {
+  border-color: var(--color-ink);
+  outline: 2px solid var(--color-ink);
+  outline-offset: 1px;
+  background: var(--color-ground);
+}
+.editor-title > div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--color-muted);
+}
+.editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.editor-feedback:has(.notice) {
+  padding: 12px var(--gutter) 0;
+}
+.editor-layout {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 260px minmax(320px, 1fr) 300px;
+}
+.editor-left,
+.editor-right {
+  min-width: 0;
+  overflow-y: auto;
+  background: var(--color-ground);
+}
+.editor-section {
+  display: grid;
+  gap: 14px;
+  padding: 20px 20px 24px;
+}
+.editor-section + .editor-section {
+  padding-top: 8px;
+}
+.editor-section h2 {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  font-family: var(--font-sans);
+  font-size: 15px;
+  font-weight: 700;
+}
+.editor-section h2 span {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--color-muted);
+}
+.editor-section .field input:not([type="checkbox"], [type="radio"], [type="file"], [type="color"]),
+.editor-section .field select,
+.editor-section .field textarea {
+  min-height: 40px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  font-size: 15px;
+}
+.editor-section .field select {
+  padding-right: 34px;
+  background-position: right 13px center;
+}
+.editor-section .field input[type="color"] {
+  width: 100%;
+  height: 40px;
+  padding: 3px;
+  border: 1px solid var(--color-line-strong);
+  border-radius: 12px;
+  background: var(--color-ground);
+  cursor: pointer;
+}
+.editor-section fieldset {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+.upload-control {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 10px 14px;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 160ms var(--ease-out);
+}
+@media (hover: hover) and (pointer: fine) {
+  .upload-control:hover {
+    background: var(--color-issue);
+  }
+}
+.upload-control input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+.upload-control:has(input:focus-visible) {
+  outline: 2px solid var(--color-ink);
+  outline-offset: 3px;
+}
+.upload-control.disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+.layer-section {
+  padding-inline: 12px;
+}
+.layer-section h2 {
+  padding-inline: 8px;
+}
+.layer-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.layer-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 42px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  text-align: left;
+  font-size: 14px;
+  color: var(--color-muted);
+  cursor: pointer;
+  transition:
+    background-color 140ms var(--ease-out),
+    color 140ms var(--ease-out),
+    transform 120ms var(--ease-out);
+}
+.layer-item span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.layer-item small {
+  font-size: 12px;
+  color: var(--color-muted);
+}
+.layer-item svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+@media (hover: hover) and (pointer: fine) {
+  .layer-item:hover {
+    background: var(--color-surface);
+    color: var(--color-ink);
+  }
+}
+.layer-item:active {
+  transform: scale(0.98);
+}
+@media (pointer: coarse) {
+  .zoom-control select {
+    min-height: 44px;
+  }
+}
+.layer-item.selected {
+  background: var(--color-issue-soft);
+  color: var(--color-ink);
+}
+.background-layer {
+  margin-top: 4px;
+  cursor: default;
+}
+.background-layer:hover {
+  background: transparent;
+  color: var(--color-muted);
+}
+
+/* The sheet sits on a calm warm ground; the paper itself is the only white */
+.canvas-workspace {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--color-surface);
+}
+.canvas-topline {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 22px 0;
+  font-size: 13px;
+  color: var(--color-muted);
+}
+.canvas-scroll {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  min-height: 0;
+  padding: 32px;
+  overflow: auto;
+}
+.canvas-scaled-box {
+  position: relative;
+  flex-shrink: 0;
+  background: #fff;
+  outline: 1px solid var(--color-line);
+}
+.canvas-sheet {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: top left;
+}
+.element-handles {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.element-handle {
+  position: absolute;
+  padding: 0;
+  border: 1.5px solid transparent;
+  background: transparent;
+  color: transparent;
+  pointer-events: auto;
+  touch-action: none;
+  cursor: move;
+}
+.element-handle:hover {
+  border-color: rgb(54 53 53 / 0.35);
+}
+.element-handle.selected {
+  border-color: var(--color-ink);
+}
+.selection-corner {
+  position: absolute;
+  display: none;
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid var(--color-ink);
+  border-radius: 50%;
+  background: var(--color-issue);
+}
+.selected .selection-corner {
+  display: block;
+}
+.top-left {
+  top: -6px;
+  left: -6px;
+}
+.bottom-right {
+  right: -6px;
+  bottom: -6px;
+}
+.canvas-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 18px;
+  font-size: 13px;
+  color: var(--color-muted);
+}
+.zoom-control {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--color-ground);
+}
+.zoom-control select {
+  min-height: 32px;
+  width: 76px;
+  padding: 0 6px;
+  border: 0;
+  background: transparent;
+  font-size: 14px;
+  text-align: center;
+}
+.property-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.editor-add {
+  margin-top: 4px;
+}
+
+@media (max-width: 1180px) {
+  .editor {
+    height: auto;
+  }
+  .editor-layout {
+    grid-template-columns: 220px minmax(0, 1fr);
+  }
+  .editor-left,
+  .editor-right {
+    max-height: none;
+  }
+  .canvas-scroll {
+    min-height: 520px;
+  }
+  .editor-right {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  }
+}
+@media (max-width: 760px) {
+  .editor-toolbar {
+    flex-wrap: wrap;
+    padding-inline: 16px;
+  }
+  .editor-actions {
+    width: 100%;
+  }
+  .editor-layout {
+    display: flex;
+    flex-direction: column;
+  }
+  .layer-list {
+    flex-direction: row;
+    overflow-x: auto;
+  }
+  .layer-item {
+    min-width: 150px;
+  }
+  .canvas-scroll {
+    min-height: 340px;
+    padding: 20px;
+  }
+  .editor-right {
+    display: block;
+  }
+}

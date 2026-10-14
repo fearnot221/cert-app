@@ -1,0 +1,714 @@
+/* ---------- Buttons: one shape (pill), flat fill, press feedback ---------- */
+.btn {
+  --btn-bg: var(--color-ink);
+  --btn-fg: var(--color-ground);
+  --btn-bg-hover: var(--color-ink-hover);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 0 22px;
+  border-radius: var(--radius-pill);
+  background: var(--btn-bg);
+  color: var(--btn-fg);
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.2;
+  white-space: nowrap;
+  text-align: center;
+  transition:
+    background-color 160ms var(--ease-out),
+    color 160ms var(--ease-out),
+    transform 120ms var(--ease-out);
+}
+.btn svg {
+  width: 16px;
+  height: 16px;
+}
+@media (hover: hover) and (pointer: fine) {
+  .btn:hover:not(:disabled) {
+    background: var(--btn-bg-hover);
+  }
+}
+.btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+.btn:disabled {
+  --btn-bg: var(--color-surface-strong);
+  --btn-fg: var(--color-ink-disabled);
+  cursor: not-allowed;
+}
+.btn.danger-text:disabled {
+  color: var(--color-ink-disabled);
+}
+/* A refresh keeps working while data reloads; the icon turns instead of the button greying out. */
+.btn[aria-busy="true"] svg {
+  animation: spin 800ms linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.btn-ghost:disabled {
+  --btn-bg: transparent;
+}
+.btn-quiet {
+  --btn-bg: var(--color-surface);
+  --btn-fg: var(--color-ink);
+  --btn-bg-hover: var(--color-surface-strong);
+}
+.btn-ghost {
+  --btn-bg: transparent;
+  --btn-fg: var(--color-ink);
+  --btn-bg-hover: var(--color-surface);
+  padding: 0 14px;
+}
+.btn-danger {
+  --btn-bg: var(--color-danger);
+  --btn-fg: var(--color-ground);
+  --btn-bg-hover: var(--color-danger-hover);
+}
+.btn-sm {
+  min-height: 36px;
+  padding: 0 14px;
+  font-size: 14px;
+}
+.btn-ghost.btn-sm {
+  padding: 0 10px;
+}
+.btn-icon {
+  width: 44px;
+  min-height: 44px;
+  padding: 0;
+}
+.btn-block {
+  width: 100%;
+}
+.btn-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ---------- Form fields: real fields keep a boundary for contrast ---------- */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-ink);
+}
+.field-help {
+  font-size: var(--step-small);
+  font-weight: 400;
+  color: var(--color-muted);
+  line-height: 1.5;
+}
+.input,
+.field input:not([type="checkbox"], [type="radio"], [type="file"], [type="color"]),
+.field select,
+.field textarea {
+  width: 100%;
+  min-height: 48px;
+  padding: 11px 16px;
+  border: 1px solid var(--color-line-strong);
+  border-radius: var(--radius-control);
+  background: var(--color-ground);
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1.4;
+  transition: border-color 140ms var(--ease-out);
+}
+.field select,
+select.input {
+  appearance: none;
+  padding-right: 42px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5 11 1.5' fill='none' stroke='%23363535' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 18px center;
+}
+.field textarea {
+  resize: vertical;
+  line-height: 1.6;
+}
+.field input[type="color"] {
+  width: 100%;
+  height: 48px;
+  padding: 4px;
+  border: 1px solid var(--color-line-strong);
+  border-radius: var(--radius-control);
+  background: var(--color-ground);
+}
+.field input[type="number"] {
+  font-variant-numeric: tabular-nums;
+}
+.input:hover,
+.field input:hover,
+.field select:hover,
+.field textarea:hover {
+  border-color: var(--color-ink);
+}
+.input:focus-visible,
+.field input:focus-visible,
+.field select:focus-visible,
+.field textarea:focus-visible {
+  outline: 2px solid var(--color-ink);
+  outline-offset: 1px;
+  border-color: var(--color-ink);
+}
+.field input:disabled,
+.field select:disabled,
+.field textarea:disabled {
+  background: var(--color-surface);
+  color: var(--color-muted);
+  cursor: not-allowed;
+}
+.field ::placeholder {
+  color: var(--color-muted);
+}
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 15px;
+  cursor: pointer;
+}
+input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--color-ink);
+  cursor: pointer;
+}
+
+/* ---------- Surfaces ---------- */
+.panel {
+  background: var(--color-surface);
+  border-radius: var(--radius-panel);
+  padding: clamp(20px, 2.4vw, 32px);
+}
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* ---------- Status: the seal motif at text size ---------- */
+.status {
+  --dot: var(--color-neutral-dot);
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 28px;
+  padding: 0 12px 0 10px;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+}
+.status::before {
+  content: "";
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--dot);
+}
+.status-good {
+  --dot: var(--color-verify-dot);
+  background: var(--color-verify-soft);
+  color: var(--color-verify-ink);
+}
+.status-issue {
+  --dot: var(--color-issue-dot);
+  background: var(--color-issue-soft);
+  color: var(--color-issue-ink);
+}
+.status-danger {
+  --dot: var(--color-danger);
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+}
+.seal-dot {
+  display: inline-block;
+  width: 0.62em;
+  height: 0.62em;
+  border-radius: 50%;
+  background: var(--color-issue);
+  flex-shrink: 0;
+}
+
+/* ---------- Notices ---------- */
+.notice {
+  transition:
+    opacity 200ms var(--ease-out),
+    transform 200ms var(--ease-out);
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 18px;
+  border-radius: 20px;
+  background: var(--color-surface);
+  font-size: 15px;
+  line-height: 1.55;
+}
+.notice svg {
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+}
+.notice-error {
+  background: var(--color-danger-soft);
+  color: var(--color-danger-ink);
+}
+.notice-success {
+  background: var(--color-verify-soft);
+  color: var(--color-verify-ink);
+}
+.notice-info {
+  background: var(--color-issue-soft);
+  color: var(--color-issue-text);
+}
+
+/* ---------- Loading, empty, errors ---------- */
+@starting-style {
+  .notice {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+/* Fast responses never show the skeleton: it fades in only after 300ms. */
+.loading {
+  animation: fade-in 200ms var(--ease-out) 300ms both;
+  display: grid;
+  gap: 12px;
+  padding: 28px 0;
+  color: var(--color-muted);
+  font-size: 14px;
+}
+.skeleton-line {
+  display: block;
+  height: 14px;
+  width: 100%;
+  max-width: 560px;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-strong);
+  animation: pulse 1.4s var(--ease-in-out) infinite;
+}
+.skeleton-line.short {
+  max-width: 280px;
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+.empty {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px 28px;
+  align-items: center;
+  padding: clamp(28px, 4vw, 48px);
+  border-radius: var(--radius-panel);
+  background: var(--color-surface);
+}
+.empty-seal {
+  grid-row: span 3;
+  position: relative;
+  width: clamp(96px, 12vw, 160px);
+  aspect-ratio: 1.38;
+}
+.empty-seal::before,
+.empty-seal::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  height: 100%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+}
+.empty-seal::before {
+  left: 0;
+  background: var(--color-issue);
+}
+.empty-seal::after {
+  right: 0;
+  background: var(--color-verify);
+  mix-blend-mode: multiply;
+}
+.empty h2 {
+  font-size: clamp(1.5rem, 1.2rem + 1vw, 2rem);
+}
+.empty p {
+  max-width: 52ch;
+  color: var(--color-muted);
+}
+.empty .btn {
+  justify-self: start;
+  margin-top: 8px;
+}
+@media (max-width: 640px) {
+  .empty {
+    grid-template-columns: 1fr;
+  }
+  .empty-seal {
+    grid-row: auto;
+    width: 64px;
+  }
+}
+.load-error {
+  display: grid;
+  gap: 12px;
+  justify-items: start;
+}
+
+/* ---------- Page header ---------- */
+.page-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px 32px;
+  margin-bottom: clamp(24px, 3vw, 40px);
+}
+.page-header h1 {
+  font-size: var(--step-head);
+  line-height: 1.12;
+  letter-spacing: -0.02em;
+}
+.page-header p {
+  margin-top: 10px;
+  max-width: 56ch;
+  font-size: var(--step-lead);
+  line-height: 1.45;
+  color: var(--color-muted);
+}
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 18px;
+  min-height: 40px;
+  padding: 0 14px 0 10px;
+  transition:
+    background-color 160ms var(--ease-out),
+    transform 120ms var(--ease-out);
+  margin-left: -10px;
+  border-radius: var(--radius-pill);
+  font-size: 15px;
+  font-weight: 500;
+}
+.back-link:active,
+.segmented button:active,
+.disclosure > summary:active {
+  transform: scale(0.97);
+}
+
+/* ---------- Segmented control ---------- */
+.segmented {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+}
+.segmented button {
+  min-height: 40px;
+  padding: 0 18px;
+  border-radius: var(--radius-pill);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-muted);
+  transition:
+    background-color 160ms var(--ease-out),
+    color 160ms var(--ease-out),
+    transform 120ms var(--ease-out);
+}
+@media (hover: hover) and (pointer: fine) {
+  .back-link:hover {
+    background: var(--color-surface);
+  }
+  .segmented button:hover:not([aria-pressed="true"]) {
+    color: var(--color-ink);
+    background: var(--color-surface-strong);
+  }
+  .disclosure > summary:hover {
+    background: var(--color-surface-strong);
+  }
+  .data-table tbody tr:hover {
+    background: var(--color-surface);
+  }
+}
+.segmented button[aria-pressed="true"] {
+  background: var(--color-ink);
+  color: var(--color-ground);
+}
+
+/* ---------- Tables (real data keeps its lines) ---------- */
+.table-wrap {
+  overflow-x: auto;
+  border-radius: 20px;
+  background: var(--color-ground);
+}
+.panel .table-wrap {
+  margin: 0 -8px;
+}
+.data-table {
+  width: 100%;
+  min-width: 640px;
+  font-size: 15px;
+}
+.data-table .cell-title {
+  min-width: 7em;
+}
+.data-table th {
+  padding: 12px 16px;
+  text-align: left;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-muted);
+  white-space: nowrap;
+  border-bottom: 1px solid var(--color-line);
+}
+.data-table td {
+  padding: 16px;
+  vertical-align: top;
+  border-bottom: 1px solid var(--color-line);
+}
+.data-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+/* While a new page or filter loads, the old rows dim; the delay hides it on fast responses. */
+[aria-busy="true"] > .data-table,
+.data-table[aria-busy="true"] {
+  opacity: 0.55;
+  transition: opacity 150ms ease 150ms;
+}
+.cell-sub {
+  display: block;
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--color-muted);
+  overflow-wrap: anywhere;
+}
+.cell-title {
+  font-weight: 500;
+}
+.danger-text {
+  color: var(--color-danger);
+}
+.good-text {
+  color: var(--color-verify-ink);
+}
+.code-small {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+  color: var(--color-muted);
+}
+
+/* ---------- Pagination ---------- */
+.pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 24px;
+  font-size: 14px;
+  color: var(--color-muted);
+}
+
+/* ---------- Dialog (floats, so it may cast a shadow) ---------- */
+.dialog {
+  width: min(640px, calc(100vw - 24px));
+  max-height: calc(100dvh - 32px);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-panel);
+  background: var(--color-ground);
+  color: var(--color-ink);
+  box-shadow: 0 30px 80px rgb(30 28 27 / 0.22); /* taste-skill-ignore: modal dialog floats over the page */
+}
+.dialog[open] {
+  animation: dialog-in 220ms var(--ease-out);
+}
+.dialog::backdrop {
+  background: rgb(38 36 35 / 0.42);
+}
+.dialog[open]::backdrop {
+  animation: fade-in 200ms var(--ease-out);
+}
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+}
+.dialog-body {
+  display: grid;
+  gap: 18px;
+  padding: clamp(22px, 3vw, 32px);
+}
+.dialog-body h2 {
+  font-size: 1.75rem;
+  line-height: 1.2;
+}
+.dialog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+/* ---------- Disclosure ---------- */
+.disclosure > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  list-style: none;
+  transition:
+    background-color 160ms var(--ease-out),
+    transform 120ms var(--ease-out);
+}
+.disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+.disclosure > summary::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-verify-strong);
+}
+.disclosure[open] > summary {
+  margin-bottom: 12px;
+}
+
+/* ---------- Progress ---------- */
+.progress {
+  width: 100%;
+  height: 12px;
+  appearance: none;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--color-ground);
+  overflow: hidden;
+}
+.progress::-webkit-progress-bar {
+  background: var(--color-ground);
+  border-radius: var(--radius-pill);
+}
+.progress::-webkit-progress-value {
+  background: var(--color-ink);
+  border-radius: var(--radius-pill);
+  transition: width 300ms linear;
+}
+.progress::-moz-progress-bar {
+  background: var(--color-ink);
+  border-radius: var(--radius-pill);
+}
+
+/* ---------- File drop ---------- */
+.file-drop {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 4px 18px;
+  padding: 22px 24px;
+  border-radius: 24px;
+  border: 1.5px dashed var(--color-line-strong);
+  background: var(--color-ground);
+  cursor: pointer;
+  transition:
+    border-color 160ms var(--ease-out),
+    background-color 160ms var(--ease-out);
+}
+.file-drop:has(input:focus-visible) {
+  outline: 2px solid var(--color-ink);
+  outline-offset: 3px;
+}
+.file-drop:hover,
+.file-drop:has(input:focus-visible) {
+  border-color: var(--color-ink);
+  background: var(--color-issue-soft);
+}
+.file-drop .file-drop-seal {
+  grid-row: span 2;
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: var(--color-issue);
+}
+.file-drop strong {
+  font-weight: 500;
+}
+.file-drop span:not(.file-drop-seal) {
+  font-size: 13px;
+  color: var(--color-muted);
+}
+.file-drop input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.file-drop.is-disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+/* ---------- Definition grids ---------- */
+.facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 18px 28px;
+}
+.facts dt {
+  font-size: 13px;
+  color: var(--color-muted);
+}
+.facts dd {
+  margin-top: 4px;
+  font-size: 16px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+/* ---------- Touch: every control is at least 44px tall on coarse pointers ---------- */
+@media (pointer: coarse) {
+  .btn-sm,
+  .disclosure > summary,
+  .segmented button,
+  .back-link {
+    min-height: 44px;
+  }
+  .check-hit {
+    display: inline-grid;
+    place-items: center;
+    min-width: 44px;
+    min-height: 44px;
+    margin: -12px;
+  }
+}

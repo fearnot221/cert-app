@@ -8,7 +8,7 @@ test("Excel 工作表與欄位對應、錯誤報告、批次 ZIP、活動篩選�
 }) => {
   const unique = Date.now().toString();
   const name = `Excel 發證 ${unique}`;
-  await page.goto("/");
+  await page.goto("/login");
   await page
     .getByLabel("電子郵件", { exact: true })
     .fill(process.env.SEED_ADMIN_EMAIL || "admin@example.test");
@@ -16,8 +16,8 @@ test("Excel 工作表與欄位對應、錯誤報告、批次 ZIP、活動篩選�
     .getByLabel("密碼", { exact: true })
     .fill(process.env.SEED_ADMIN_PASSWORD || "Local-Cert-Only-2026!");
   await page.getByRole("button", { name: "登入工作空間" }).click();
-  await page.getByRole("button", { name: "發證活動", exact: true }).click();
-  await page.getByRole("button", { name: "建立發證活動", exact: true }).click();
+  await page.getByRole("link", { name: "發證活動", exact: true }).click();
+  await page.getByRole("link", { name: "建立發證活動", exact: true }).click();
   await page.getByLabel("活動名稱", { exact: true }).fill(name);
   await page
     .getByRole("combobox", { name: "模板版本", exact: true })
@@ -127,19 +127,17 @@ test("Excel 工作表與欄位對應、錯誤報告、批次 ZIP、活動篩選�
     fullPage: true,
   });
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.getByRole("button", { name: "返回發證活動", exact: true }).click();
+  await page.getByRole("link", { name: "返回發證活動", exact: true }).click();
   await page.getByLabel("搜尋活動", { exact: true }).fill(name);
   await page
     .getByRole("combobox", { name: "活動狀態", exact: true })
     .selectOption("generated");
-  await expect(page.getByRole("heading", { name, exact: true })).toBeVisible();
   await page.screenshot({
     path: "test-results/batch-list.png",
     fullPage: true,
   });
-  await page.getByRole("button", { name: "列表", exact: true }).click();
   await expect(page.getByRole("cell", { name, exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "建立發證活動", exact: true }).click();
+  await page.getByRole("link", { name: "建立發證活動", exact: true }).click();
   await page.getByLabel("活動名稱", { exact: true }).fill(`手動 ${unique}`);
   await page
     .getByRole("combobox", { name: "模板版本", exact: true })
@@ -183,9 +181,12 @@ test("Excel 工作表與欄位對應、錯誤報告、批次 ZIP、活動篩選�
   await modal.getByLabel('姓名', { exact: true }).fill('補發學員');
   await modal.getByLabel('操作原因').fill('依正確姓名補發');
   await modal.getByRole('button', { name: '確認重新發放證書', exact: true }).click();
-  // The batch was already "generated" before the reissue; wait for the request to commit before polling.
+  // The batch was already "generated" before the reissue, so wait for the dialog to close and then on the row itself.
   await expect(modal).toHaveCount(0);
-  await expect.poll(async () => (await (await page.request.get(manualPath)).json()).status, { timeout: 60000 }).toBe('generated');
+  await expect.poll(async () => {
+    const reissued = await (await page.request.get(manualPath)).json();
+    return `${reissued.status}/${reissued.rows[0].status}`;
+  }, { timeout: 60000 }).toBe('generated/success');
   await page.getByRole('button', { name: '重新整理', exact: true }).click();
   await expect(page.getByText('2 個版本', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: '正式 PDF', exact: true })).toBeEnabled();
