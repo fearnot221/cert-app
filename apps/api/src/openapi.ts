@@ -95,6 +95,10 @@ const bodies: Record<string, unknown> = {
   "POST /api/organizations/:org/batches/:id/send": object({
     senderIdentityId: uuid,
   }),
+  "POST /api/organizations/:org/batches/:id/deliveries/retry": object({
+    senderIdentityId: uuid,
+    reason: { ...string, minLength: 1, maxLength: 500 },
+  }),
 };
 /** Documentation-only transform. Runtime validation remains strict Zod + tenant authorization. */
 export const apiDocumentation: SwaggerTransform = ({ schema, url, route }) => {
@@ -164,7 +168,10 @@ export const apiDocumentation: SwaggerTransform = ({ schema, url, route }) => {
       " Requires an active organization Membership and the operation-specific permission. Resource lookup is always scoped to the same organization. The org URL value does not grant access.";
   if (url.endsWith("/send"))
     result.description =
-      "Explicitly queues notifications only after every row has successfully generated. Only authorized development Mailpit senders are enabled in Phase 1. SMTP accepted does not mean delivered.";
+      "Explicitly queues notifications only after every row has successfully generated. Only authorized development Mailpit senders are enabled in Phase 1. SMTP accepted does not mean delivered. Returns { queued, skipped, message }: existing deliveries are never reset, so queued can be 0 with skipped counts (inProgress, accepted, unknown, failed, cancelled) explaining why.";
+  if (url.endsWith("/deliveries/retry"))
+    result.description =
+      "Requires mail.send and certificates.issue plus a reason. Re-queues only failed or cancelled deliveries of this sender whose certificate is currently valid, unexpired and generated; attempts are kept as history and the reason is audited. Unknown deliveries are never retried (check the Message-ID manually). Returns 409 when nothing is retryable, so a double submit queues once.";
   if (url.endsWith("/generate"))
     result.description =
       "Requires a successful server PDF preview. Repeated requests reuse row certificates and durable outbox records.";

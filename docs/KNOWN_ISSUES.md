@@ -6,11 +6,12 @@
 
 | ID／優先度 | 現象與重現／證據 | 影響、暫行方式 | 修復方向與驗收 |
 | --- | --- | --- | --- |
-| BUG-001／P2 | `apps/api/src/routes.ts` 的 batch preview 在渲染後因 revision 改變拋出 409，外層 catch 會改回 422。開啟較慢的樣張時，另一個視窗修改／取消活動即可觸發；依程式路徑確認，尚未加入併發瀏覽器重現測試。 | 使用者仍被要求重新預覽，不會確認舊資料，但 HTTP 狀態碼不準。重新整理後再預覽。 | catch 保留業務 statusCode，僅渲染錯誤映射 422；新增渲染中編輯／取消的整合測試。 |
-| BUG-002／P2 | 原通知已 failed／cancelled，之後證書續期，再按同寄件身分的發送，EmailDelivery 唯一鍵命中舊紀錄；upsert 不重置、沒有新 outbox，但 API 仍可回 ok。依 routes.ts send 分支確認；期限 worker 拒絕與續期已測，這個重新通知情境未獨立 E2E。 | 不能依「已提交」推論舊失敗通知重送。查通知紀錄／Mailpit；必要時補發新證書並發新版通知。 | 新增明確「重試通知」操作，只允許可確定失敗／取消，保留 attempts、理由、新 outbox；unknown 必須人工核對。API 回傳實際排隊／略過數，零排隊時給明確原因。 |
-| BUG-003／P3 | 本機測試 log 持續出現 Fastify `disableRequestLogging` 與 pg concurrent query deprecation。 | 現行測試通過；未來升級 Fastify 6／pg 9 有相容風險。固定 lockfile。 | 遷移 logger 設定，定位同 connection 並行 query（包含 adapter 行為）；升版前跑完整 integration 與 worker 演練。 |
+| BUG-003／P3 | 本機測試 log 出現 pg concurrent query deprecation。以 `--trace-deprecation` 定位：來源是 `@prisma/adapter-pg` 7.10 的 `PgTransaction.queryRaw`，Prisma query interpreter 在互動式 transaction 內並行送出查詢，非本專案程式直接呼叫。Fastify `disableRequestLogging` 警告已於 2026-10-14 改用 `logController` 修正。 | 現行測試通過；升級 pg 9 前須確認 Prisma adapter 已改為序列化查詢。固定 lockfile。 | 追蹤 Prisma adapter-pg 上游修正後升版；升版前跑完整 integration 與 worker 演練。 |
 
 ## 已修復、需保留回歸測試
+
+- BUG-001（2026-10-14 修正）：batch preview 渲染後因 revision 改變的 409 原本被外層 catch 改成 422。現在只有渲染失敗映射 422，業務衝突保留 409。整合測試以未提交的 revision 更新持有列鎖，確定性重現「渲染中活動被修改」並驗證回 409、不寫入 previewedAt。
+- BUG-002（2026-10-14 修正）：發送通知原本命中舊的 failed／cancelled EmailDelivery 時不會重新排隊卻仍回 ok。現在 `send` 回傳 `{ queued, skipped, message }`，從不重置既有通知，零排隊時說明原因（傳送中、已交付、結果不確定、失敗／取消、證書無效）。新增 `POST /batches/:id/deliveries/retry`（需 mail.send + certificates.issue 與理由）：只重排目前有效證書的 failed／cancelled 通知，保留 attempts 歷程、新 outbox、audit 記錄理由與前後狀態；unknown 一律拒絕並要求人工核對 Message-ID；在活動鎖內執行，雙擊只排一次。後台 UI 尚未接上重試按鈕（前端改版另案處理）。
 
 - 多視窗重新取得 CSRF token 原本會旋轉 cookie，讓既有視窗快取的 token 失效。現在重用有效 signed cookie token；整合測試確認穩定與偽造請求仍被拒絕。
 - 收件人列原本顯示來源列號 2 容易誤認數量；現在序號 1 與來源列號分開。

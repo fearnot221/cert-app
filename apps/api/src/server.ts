@@ -1,4 +1,4 @@
-import Fastify from "fastify";
+import Fastify, { LogController } from "fastify";
 import cookie from "@fastify/cookie";
 import multipart from "@fastify/multipart";
 import rateLimit from "@fastify/rate-limit";
@@ -23,7 +23,7 @@ export async function buildApp() {
               "res.headers.set-cookie",
             ],
           },
-    disableRequestLogging: true,
+    logController: new LogController({ disableRequestLogging: true }),
     bodyLimit: 1024 * 1024,
     trustProxy: false,
   });

@@ -181,7 +181,8 @@ test("Excel 工作表與欄位對應、錯誤報告、批次 ZIP、活動篩選�
   await modal.getByLabel('姓名', { exact: true }).fill('補發學員');
   await modal.getByLabel('操作原因').fill('依正確姓名補發');
   await modal.getByRole('button', { name: '確認重新發放證書', exact: true }).click();
-  // The batch can still read "generated" before the worker picks up the reissue, so wait on the row itself.
+  // The batch was already "generated" before the reissue, so wait for the dialog to close and then on the row itself.
+  await expect(modal).toHaveCount(0);
   await expect.poll(async () => {
     const reissued = await (await page.request.get(manualPath)).json();
     return `${reissued.status}/${reissued.rows[0].status}`;
