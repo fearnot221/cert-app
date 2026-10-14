@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BUILTIN_FIELDS, CertificateSerialSchema, createDefaultDocument, formatCertificateNumber, interpolateText, isBuiltinField, TemplateDocumentSchema, validateTemplateData, withBuiltinFields } from './index';
+import { BUILTIN_FIELDS, createDefaultDocument, interpolateText, isValidSerial, normalizeSerial, isBuiltinField, TemplateDocumentSchema, validateTemplateData, withBuiltinFields } from './index';
 
 describe('versioned certificate document', () => {
   it('validates a fresh document and does not share mutable arrays between callers', () => {
@@ -48,15 +48,18 @@ describe('versioned certificate document', () => {
 });
 
 describe('serial numbers and built-in fields', () => {
-  it('pads the sequence after the prefix and never truncates a longer number', () => {
-    expect(formatCertificateNumber('CERT', 6, 128)).toBe('CERT-000128');
-    expect(formatCertificateNumber('ZX', 3, 12345)).toBe('ZX-12345');
+  it('normalises imported serials so full-width or lower-case copies match', () => {
+    expect(normalizeSerial(' sta-2026-001 ')).toBe('STA-2026-001');
+    expect(normalizeSerial('ＳＴＡ－００１')).toBe('STA-001');
+    expect(isValidSerial('台研字第001號')).toBe(true);
+    expect(isValidSerial('A/2026#7')).toBe(true);
+    for (const bad of ['', '-001', 'A B', 'A<script>', 'x'.repeat(65)]) expect(isValidSerial(bad)).toBe(false);
   });
 
-  it('uppercases prefixes and rejects characters that would be ambiguous on paper', () => {
-    expect(CertificateSerialSchema.parse({ prefix: ' cert-a ', digits: 6 }).prefix).toBe('CERT-A');
-    expect(CertificateSerialSchema.safeParse({ prefix: '證書', digits: 6 }).success).toBe(false);
-    expect(CertificateSerialSchema.safeParse({ prefix: 'CERT', digits: 2 }).success).toBe(false);
+  it('drops the retired verification QR when a template is saved', () => {
+    const legacy = { ...createDefaultDocument(), verificationQr: { x: 1, y: 1, size: 22 } };
+    expect(TemplateDocumentSchema.parse(legacy).verificationQr).toBeTruthy();
+    expect('verificationQr' in withBuiltinFields(TemplateDocumentSchema.parse(legacy))).toBe(false);
   });
 
   it('adds missing built-in fields to older templates without touching custom ones', () => {

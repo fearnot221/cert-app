@@ -140,7 +140,7 @@ describe.runIf(process.env.RENDERER_INTEGRATION === "1")(
   },
 );
 
-it.runIf(process.env.RENDERER_INTEGRATION === '1')('decodes the actual QR printed in a PDF back to its verification URL', async () => {
+it.runIf(process.env.RENDERER_INTEGRATION === '1')('prints no QR code, even for an older template that still carries a QR position', async () => {
   const { mkdtemp, writeFile, rm } = await import('node:fs/promises');
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
@@ -148,15 +148,13 @@ it.runIf(process.env.RENDERER_INTEGRATION === '1')('decodes the actual QR printe
   const sharp = (await import('sharp')).default;
   const jsQR = (await import('jsqr')).default;
   const dir = await mkdtemp(join(tmpdir(), 'cert-qr-'));
-  const verification = 'https://cert.example.test/verify/12345678-1234-4234-8234-123456789abc';
   try {
-    const document = createDefaultDocument();
-    const pdf = await renderPdf({ document, data: { ...data, verification_url: verification } });
+    const document = { ...createDefaultDocument(), verificationQr: { x: 250, y: 160, size: 30 } };
+    const pdf = await renderPdf({ document, data: { ...data, verification_url: 'https://cert.example.test/verify/legacy' } });
     await writeFile(join(dir, 'certificate.pdf'), pdf);
     execFileSync('pdftoppm', ['-f','1','-singlefile','-r','200','-png',join(dir,'certificate.pdf'),join(dir,'page')]);
     const { data: pixels, info } = await sharp(join(dir, 'page.png')).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
-    const decoded = jsQR(new Uint8ClampedArray(pixels), info.width, info.height);
-    expect(decoded?.data).toBe(verification);
+    expect(jsQR(new Uint8ClampedArray(pixels), info.width, info.height)).toBeNull();
   } finally { await rm(dir, { recursive: true, force: true }); }
 }, 45000);
 

@@ -1,4 +1,3 @@
-import QRCode from "qrcode";
 import { useEffect, useRef, type CSSProperties } from "react";
 import {
   FONT_SHA256,
@@ -9,13 +8,6 @@ import {
 } from "@cert/contracts";
 import { fitCertificateText } from "./layout";
 
-export function VerificationQr({ value, size = 160 }: { value: string; size?: number | string }) {
-  const qr = QRCode.create(value, { errorCorrectionLevel: "M" });
-  const n = qr.modules.size;
-  const path: string[] = [];
-  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) if (qr.modules.get(y, x)) path.push(`M${x+4} ${y+4}h1v1h-1z`);
-  return <svg xmlns="http://www.w3.org/2000/svg" role="img" aria-label="證書公開驗證 QR Code" width={size} height={size} viewBox={`0 0 ${n+8} ${n+8}`} shapeRendering="crispEdges"><rect width="100%" height="100%" fill="white"/><path d={path.join("")} fill="black"/></svg>;
-}
 export { fitCertificateText } from "./layout";
 export const RENDER_FONT_FAMILY = `CertificateNotoTC_${FONT_SHA256.slice(0, 12)}`;
 
@@ -150,7 +142,6 @@ export function CertificateView({
           }}
         />
       )}
-      {template.verificationQr && <div data-verification-qr style={{ position: "absolute", left: `${template.verificationQr.x}mm`, top: `${template.verificationQr.y}mm`, width: `${template.verificationQr.size}mm`, height: `${template.verificationQr.size}mm` }}><VerificationQr value={String(data.verification_url || "https://example.invalid/verify/preview")} size="100%" /></div>}
       {template.elements.map((element) => {
         const style: CSSProperties = {
           position: "absolute",

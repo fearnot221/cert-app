@@ -1,10 +1,11 @@
-import { randomBytes, createHash } from "node:crypto";
+import { createHash } from "node:crypto";
 import { emailProvider } from "./email.js";
 import { Pool } from "pg";
 import { renderVersionPdf } from "./rendering.js";
 import { config } from "@cert/config";
 import { db } from "./db.js";
-import { certificateStatus, verificationUrl } from "./verification.js";
+import { certificateStatus } from "./verification.js";
+import { generateAccessPassword, hashAccessPassword } from "./access.js";
 import { storage } from "./storage.js";
 const jobLocks = new Pool({ connectionString: config.DATABASE_URL, max: 8 });
 export async function closeJobResources() {
@@ -88,7 +89,7 @@ async function processPdfLocked(certificateId: string, organizationId: string) {
     const pdf = await renderVersionPdf(
       c.templateVersion,
       organizationId,
-      { ...(c.dataSnapshot as Record<string, string>), verification_url: (c.dataSnapshot as Record<string,string>).verification_url || verificationUrl(c.publicId) },
+      c.dataSnapshot as Record<string, string>,
     );
     const pdfKey = `${organizationId}/certificates/${c.id}.pdf`;
     await storage.put(pdfKey, pdf);
@@ -143,7 +144,7 @@ async function processMailLocked(
     include: {
       organization: true,
       senderIdentity: { include: { grant: { include: { connection: true } } } },
-      certificate: { include: { recipient: { include: { user: true } } } },
+      certificate: true,
     },
   });
   if (!delivery) throw new Error("Delivery scope mismatch");
@@ -202,47 +203,27 @@ async function processMailLocked(
     return tx.deliveryAttempt.create({ data: { organizationId, deliveryId: delivery.id, status: "sending" } });
   });
   if (!attempt) return;
-  const user = delivery.certificate.recipient.user;
-  let link = `${config.APP_ORIGIN}/my-certificates`;
-  let lead = "你的證書已完成，請登入領取。";
-  if (!user.activatedAt) {
-    const token = randomBytes(32).toString("base64url");
-    await db.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT id FROM "User" WHERE id=${user.id} FOR UPDATE`;
-      const current = await tx.user.findUniqueOrThrow({
-        where: { id: user.id },
-      });
-      if (current.activatedAt) return;
-      await tx.invitation.updateMany({
-        where: { userId: user.id, consumedAt: null, purpose: "activation" },
-        data: { consumedAt: new Date() },
-      });
-      await tx.invitation.create({
-        data: {
-          userId: user.id,
-          tokenHash: hash(token),
-          expiresAt: new Date(Date.now() + 24 * 3600e3),
-        },
-      });
-      link = `${config.APP_ORIGIN}/activate#token=${token}`;
-      lead = "請在 24 小時內啟用帳號並設定自己的密碼，即可領取證書。";
-    });
-  }
+  // A fresh password for every notification. Only its hash is stored, and only once SMTP accepts the
+  // message, so a failed send never invalidates the password from an earlier email.
+  const password = generateAccessPassword();
+  const passwordHash = await hashAccessPassword(password);
   const data = delivery.certificate.dataSnapshot as Record<string, string>;
-  const text = `${data.recipient_name} 您好：\n\n${lead}\n\n組織：${delivery.organization.name}\n活動：${data.event_name}\n證書編號：${delivery.certificate.number}\n\n${link}\n\n如未預期收到此信，請聯絡發證單位。`;
+  const serial = delivery.certificate.number;
+  const link = `${new URL(config.APP_ORIGIN).origin}/download?serial=${encodeURIComponent(serial)}`;
+  const text = `${data.recipient_name} 您好：\n\n您的證書已完成。請開啟下方連結，輸入證書流水號與密碼下載 PDF，不需要註冊帳號。\n\n組織：${delivery.organization.name}\n活動：${data.event_name}\n證書流水號：${serial}\n下載密碼：${password}\n\n${link}\n\n密碼只在這封信中提供，請妥善保存；若之後收到新的通知信，請改用新信中的密碼。如未預期收到此信，請聯絡發證單位。`;
   try {
     // This adapter is only for the local Mailpit sink. Phase3 production SMTP requires TLS and verified identities.
     const result = await emailProvider.send({
       from: { name: sender.displayName, address: sender.fromAddress },
       to: delivery.toAddress,
-      subject: `${delivery.organization.name}｜證書領取通知`,
+      subject: `${delivery.organization.name}｜證書下載通知`,
       messageId: delivery.messageId,
       text,
       html: `<div lang="zh-Hant">${text
         .split("\n")
         .map((line) =>
           line.startsWith("http")
-            ? `<p><a href="${escape(line)}">啟用帳號或領取證書</a></p>`
+            ? `<p><a href="${escape(line)}">前往下載證書</a></p>`
             : `<p>${escape(line)}</p>`,
         )
         .join("")}</div>`,
@@ -255,6 +236,10 @@ async function processMailLocked(
       db.emailDelivery.update({
         where: { id: delivery.id },
         data: { status: "accepted", acceptedAt: new Date(), error: null },
+      }),
+      db.certificate.update({
+        where: { id: delivery.certificateId },
+        data: { accessKeyHash: passwordHash, accessFailures: 0, accessLockedUntil: null },
       }),
       db.deliveryAttempt.update({
         where: { id: attempt.id },
