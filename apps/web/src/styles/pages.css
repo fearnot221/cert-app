@@ -579,7 +579,7 @@ details > summary {
   }
 }
 
-/* ---------- Organization settings: the serial number, shown as it will be printed ---------- */
+/* ---------- Organization settings: the workspace address, shown as it will be typed ---------- */
 .serial-settings {
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(300px, 0.8fr);
@@ -624,6 +624,23 @@ details > summary {
   line-height: 1;
   letter-spacing: -0.02em;
   overflow-wrap: anywhere;
+}
+.slug-preview {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 2px;
+  font-size: var(--step-lead);
+  color: var(--color-issue-text);
+  overflow-wrap: anywhere;
+}
+.slug-preview strong {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  font-size: clamp(2.5rem, 1rem + 5vw, 5rem);
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  color: var(--color-ink);
 }
 .serial-after {
   font-size: var(--step-lead);
@@ -720,4 +737,48 @@ details > summary {
     font-size: 12px;
     color: var(--color-muted);
   }
+}
+.batch-templates {
+  margin-top: 4px;
+  font-size: 14px;
+  color: var(--color-muted);
+}
+
+/* ---------- Create batch: one or more templates ---------- */
+.template-picker {
+  display: grid;
+  gap: 10px;
+  margin-top: 20px;
+  min-width: 0;
+}
+.template-picker legend {
+  font-size: 15px;
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+.template-picker ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.template-picker li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
+  padding: 6px 8px 6px 16px;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  transition: background-color 160ms var(--ease-out);
+}
+.template-picker li.is-on {
+  background: var(--color-issue-soft);
+}
+.template-picker-name {
+  font-weight: 500;
+}
+.template-picker-version {
+  padding-right: 10px;
+  font-size: 14px;
+  color: var(--color-muted);
 }

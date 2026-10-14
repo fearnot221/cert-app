@@ -10,7 +10,6 @@ import { useWorkspace } from "../../app/AppShell";
 import { Button } from "../../ui/Button";
 import { Select } from "../../ui/Select";
 import { BackLink, Loading, LoadError, Notice, PageHeader, Status } from "../../ui/feedback";
-import { VerificationLinks } from "../verification/VerificationPage";
 import { BatchHistory, LifecycleActions } from "./lifecycle";
 import { NotifyPanel } from "./NotifyPanel";
 import { PdfPreviewDialog } from "./PdfPreviewDialog";
@@ -58,7 +57,7 @@ export function BatchDetailPage() {
             : ["revoked", "expired"].includes(filter)
               ? r.certificate?.status === filter
               : r.status === filter)) &&
-      `${r.data.recipient_name} ${r.data.recipient_email} ${r.certificate?.number ?? ""}`
+      `${r.data.recipient_name} ${r.data.recipient_email} ${r.certificate?.number ?? r.data.certificate_number ?? ""} ${r.templateName ?? ""}`
         .toLowerCase()
         .includes(search.toLowerCase()),
   );
@@ -101,7 +100,7 @@ export function BatchDetailPage() {
       setPreviewed((current) => new Set([...current, rowId]));
     });
 
-  const back = <BackLink to={`/o/${organization.id}/batches`}>返回發證活動</BackLink>;
+  const back = <BackLink to={`/${organization.slug}/batches`}>返回發證活動</BackLink>;
   if (resource.pending)
     return (
       <>
@@ -159,6 +158,11 @@ export function BatchDetailPage() {
             <p className="tabular">
               {generatedCount} / {rows.length} 份成功，{mailAccepted} 封已交付 SMTP
             </p>
+            {batch.templates && batch.templates.length > 0 && (
+              <p className="batch-templates">
+                使用模板：{batch.templates.map((t) => `${t.name}（第 ${t.number} 版）`).join("、")}
+              </p>
+            )}
           </div>
           <LifecycleActions org={organization.id} batch={batch} permissions={permissions} reload={afterLifecycle} />
         </div>
@@ -247,7 +251,7 @@ export function BatchDetailPage() {
           <div className="section-title section-title-row">
             <div>
               <h2 id="recipients-heading">收件人與產製結果</h2>
-              <p>預覽由伺服器產出，樣張顯示下一個流水號的格式，不會占用號碼。</p>
+              <p>預覽由伺服器產出，使用名單中的流水號與各自的模板。</p>
             </div>
             {permissions.includes("certificates.generate") && !allGenerated && (
               <Button
@@ -267,7 +271,7 @@ export function BatchDetailPage() {
               搜尋收件人
               <input
                 type="search"
-                placeholder="姓名、Email 或證書編號"
+                placeholder="姓名、Email、流水號或模板"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
@@ -334,7 +338,7 @@ export function BatchDetailPage() {
                   <th>序號</th>
                   <th>收件人</th>
                   <th>產製狀態</th>
-                  <th>證書編號 / 錯誤</th>
+                  <th>流水號 / 錯誤</th>
                   <th>通知狀態</th>
                   <th>PDF 與證書</th>
                 </tr>
@@ -365,10 +369,10 @@ export function BatchDetailPage() {
                           </label>
                         </td>
                       )}
-                      <td className="tabular cell-index">{rows.indexOf(row) + 1}</td>
+                      <td className="tabular cell-index">{row.rowNumber}</td>
                       <td className="cell-recipient">
                         <span className="cell-title">{row.data.recipient_name}</span>
-                        <span className="cell-sub">來源列號 {row.rowNumber}</span>
+                        {(batch.templates?.length ?? 0) > 1 && <span className="cell-sub">{row.templateName}</span>}
                         <span className="cell-sub">{row.data.recipient_email}</span>
                       </td>
                       <td data-label="產製狀態">
@@ -377,8 +381,8 @@ export function BatchDetailPage() {
                           {row.certificate && <Status value={row.certificate.status ?? "valid"} />}
                         </span>
                       </td>
-                      <td className="tabular" data-label="證書編號">
-                        {row.error ? <span className="danger-text">{row.error}</span> : (row.certificate?.number ?? "等待產製")}
+                      <td className="tabular" data-label="流水號">
+                        {row.error ? <span className="danger-text">{row.error}</span> : (row.certificate?.number ?? row.data.certificate_number ?? "等待產製")}
                       </td>
                       <td data-label="通知狀態">
                         {deliveries.map((d) => (
@@ -421,7 +425,7 @@ export function BatchDetailPage() {
                             <p className="field-help">
                               效期：{row.certificate.expiresAt ? formatDate(row.certificate.expiresAt) : "無到期日"}
                             </p>
-                            <VerificationLinks url={row.certificate.verificationUrl} />
+                            <p className="field-help">{row.certificate.passwordSent ? "下載密碼已隨通知寄出" : "尚未寄出下載密碼"}</p>
                           </>
                         )}
                         <LifecycleActions

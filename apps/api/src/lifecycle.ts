@@ -2,8 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import { Prisma } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { db, validateImportRows, expiryInstant, expiryDateSchema, verificationUrl, allocateCertificateNumber } from '@cert/domain';
-import { TemplateDocumentSchema } from '@cert/contracts';
+import { db, expiryInstant, expiryDateSchema } from '@cert/domain';
+import { checkRecords, loadBatchTemplates, recordsInput } from './batch-input.js';
 import { authorize, fail } from './auth.js';
 const scope = z.object({ org: z.uuid(), id: z.uuid() });
 const reason = z.string().trim().min(1).max(500);
@@ -11,7 +11,7 @@ const fields = z.record(z.string().regex(/^[a-z][a-z0-9_]{0,63}$/).refine(k => !
 const json = (v: unknown) => v as Prisma.InputJsonValue;
 async function lockedBatch(tx: Prisma.TransactionClient, org: string, id: string) {
   await tx.$queryRaw`SELECT id FROM "IssuanceBatch" WHERE id=${id} AND "organizationId"=${org} FOR UPDATE`;
-  const batch = await tx.issuanceBatch.findFirst({ where: { id, organizationId: org }, include: { rows: true, templateVersion: true, organization: true, certificates: true } });
+  const batch = await tx.issuanceBatch.findFirst({ where: { id, organizationId: org }, include: { rows: true, organization: true, certificates: true } });
   if (!batch) fail(404, '找不到活動');
   return batch;
 }
@@ -27,17 +27,18 @@ export async function registerLifecycleRoutes(app: FastifyInstance) {
   app.put('/api/organizations/:org/batches/:id', async req => {
     const { org, id } = scope.parse(req.params);
     const { user } = await authorize(req, org, 'recipients.import');
-    const body = z.object({ revision: z.number().int().positive(), eventName: z.string().trim().min(1).max(160), expiresOn: expiryDateSchema.optional(), reason, records: z.array(z.object({ rowNumber: z.number().int().min(2).max(1000000), data: fields }).strict()).min(1).max(100) }).strict().parse(req.body);
+    const body = z.object({ revision: z.number().int().positive(), eventName: z.string().trim().min(1).max(160), expiresOn: expiryDateSchema.optional(), reason, records: recordsInput }).strict().parse(req.body);
     return db.$transaction(async tx => {
       const b = await lockedBatch(tx, org, id);
       if (b.status !== 'validated' || b.certificates.length) fail(409, '已開始產製的活動不可修改；請使用證書重新發放');
       if (b.revision !== body.revision) fail(409, '活動已被更新，請重新載入');
-      if (new Set(body.records.map(r => r.rowNumber)).size !== body.records.length) fail(400, "來源列號不可重複");
-      const result = validateImportRows(body.records, TemplateDocumentSchema.parse(b.templateVersion.document));
-      if (result.rows.some(r => r.errors.length)) fail(400, '名單有錯誤，請檢查必填欄位、Email 與重複資料');
+      if (new Set(body.records.map(r => r.rowNumber)).size !== body.records.length) fail(400, "序號不可重複");
+      const templates = await loadBatchTemplates(org, [b.templateVersionId, ...b.rows.map(r => r.templateVersionId)], tx);
+      const result = await checkRecords(tx, org, templates, { records: body.records }, id);
+      if (!result.valid) fail(400, `名單有錯誤：${result.rows.flatMap(r => r.errors.map(e => `第 ${r.rowNumber} 筆 ${e.message}`)).slice(0, 3).join('；')}`);
       await tx.batchRow.deleteMany({ where: { batchId: id, organizationId: org } });
-      const updated = await tx.issuanceBatch.update({ where: { id }, data: { expiresAt: body.expiresOn === undefined ? b.expiresAt : expiryInstant(body.expiresOn), eventName: body.eventName, revision: { increment: 1 }, previewedAt: null, rows: { create: result.rows.map(r => ({ rowNumber: r.rowNumber, data: json(r.data) })) } } });
-      await log(tx, org, user, 'batch.edited', id, id, { reason: body.reason, before: { expiresAt: b.expiresAt?.toISOString() ?? null, eventName: b.eventName, revision: b.revision, records: b.rows.map(r => ({ rowNumber: r.rowNumber, data: r.data })) }, after: { expiresAt: updated.expiresAt?.toISOString() ?? null, eventName: updated.eventName, revision: updated.revision, records: body.records } });
+      const updated = await tx.issuanceBatch.update({ where: { id }, data: { expiresAt: body.expiresOn === undefined ? b.expiresAt : expiryInstant(body.expiresOn), eventName: body.eventName, revision: { increment: 1 }, previewedAt: null, rows: { create: result.rows.map(r => ({ rowNumber: r.rowNumber, templateVersionId: r.templateVersionId!, organizationId: org, data: json(r.data) })) } } });
+      await log(tx, org, user, 'batch.edited', id, id, { reason: body.reason, before: { expiresAt: b.expiresAt?.toISOString() ?? null, eventName: b.eventName, revision: b.revision, records: b.rows.map(r => ({ rowNumber: r.rowNumber, templateVersionId: r.templateVersionId, data: r.data })) }, after: { expiresAt: updated.expiresAt?.toISOString() ?? null, eventName: updated.eventName, revision: updated.revision, records: body.records } });
       return updated;
     });
   });
@@ -88,15 +89,21 @@ export async function registerLifecycleRoutes(app: FastifyInstance) {
         }
         const row = b.rows.find(r => r.id === c.rowId)!;
         const data = body.data ?? row.data as Record<string,string>;
-        const checked = validateImportRows([{ rowNumber: row.rowNumber, data }], TemplateDocumentSchema.parse(b.templateVersion.document));
-        if (checked.rows.some(r => r.errors.length)) fail(400, '請檢查補發資料的必填欄位與 Email');
+        const templates = await loadBatchTemplates(org, [c.templateVersionId], tx);
+        // The reissue keeps its serial unless staff change it; another row's serial is still refused.
+        const checked = await checkRecords(tx, org, templates, { records: [{ rowNumber: row.rowNumber, templateVersionId: c.templateVersionId, data: { certificate_number: c.number, ...data } }] }, b.id);
         const clean = checked.rows[0]!.data;
+        const otherRow = await tx.certificate.findFirst({ where: { organizationId: org, number: clean.certificate_number!, rowId: { not: row.id } }, select: { id: true } })
+          ?? await tx.batchRow.findFirst({ where: { batchId: b.id, id: { not: row.id }, data: { path: ['certificate_number'], equals: clean.certificate_number! } }, select: { id: true } });
+        if (otherRow) fail(409, `流水號 ${clean.certificate_number} 已被其他證書使用`);
+        if (checked.rows[0]!.errors.length) fail(400, `請檢查補發資料：${checked.rows[0]!.errors.map(e => e.message).join('；')}`);
         const account = await tx.user.upsert({ where: { email: clean.recipient_email! }, create: { email: clean.recipient_email! }, update: {} });
         const recipient = await tx.recipient.upsert({ where: { organizationId_email: { organizationId: org, email: clean.recipient_email! } }, create: { organizationId: org, userId: account.id, email: account.email, name: clean.recipient_name! }, update: {} });
         const nextId = randomUUID();
         const publicId = randomUUID();
-        const number = await allocateCertificateNumber(tx, org);
-        const next = await tx.certificate.create({ data: { id: nextId, publicId, expiresAt: body.expiresOn === undefined ? c.expiresAt : expiryInstant(body.expiresOn), organizationId: org, batchId: b.id, rowId: c.rowId, edition: c.edition + 1, previousCertificateId: c.id, recipientId: recipient.id, templateVersionId: c.templateVersionId, number, dataSnapshot: json({ ...c.dataSnapshot as object, ...clean, organization_name: (c.dataSnapshot as Record<string,string>).organization_name, event_name: (c.dataSnapshot as Record<string,string>).event_name, certificate_number: number, verification_url: verificationUrl(publicId) }) } });
+        const number = clean.certificate_number!;
+        // Same serial and password as before, so the recipient's email still works for the corrected PDF.
+        const next = await tx.certificate.create({ data: { id: nextId, publicId, accessKeyHash: number === c.number ? c.accessKeyHash : null, expiresAt: body.expiresOn === undefined ? c.expiresAt : expiryInstant(body.expiresOn), organizationId: org, batchId: b.id, rowId: c.rowId, edition: c.edition + 1, previousCertificateId: c.id, recipientId: recipient.id, templateVersionId: c.templateVersionId, number, dataSnapshot: json({ ...c.dataSnapshot as object, ...clean, organization_name: (c.dataSnapshot as Record<string,string>).organization_name, event_name: (c.dataSnapshot as Record<string,string>).event_name, certificate_number: number }) } });
         await tx.certificate.update({ where: { id: c.id }, data: { status: c.status === 'revoked' ? 'revoked' : 'superseded' } });
         await tx.batchRow.update({ where: { id: row.id }, data: { data: json(clean), status: 'pending', error: null } });
         await tx.issuanceBatch.update({ where: { id: b.id }, data: { status: 'generating', revision: { increment: 1 } } });

@@ -17,7 +17,7 @@ import {
 } from "@radix-ui/react-icons";
 import { CertificateView } from "@cert/renderer";
 import { api, ApiError, orgPath, post } from "../../lib/api";
-import { useAction, useResource } from "../../lib/hooks";
+import { useAction } from "../../lib/hooks";
 import type {
   Organization,
   Template,
@@ -62,8 +62,7 @@ export function TemplateEditor({
 }) {
   // Older templates predate some built-in fields (such as the serial number); add them on open.
   const [document, setDocument] = useState<TemplateDocument>(() => withBuiltinFields(template.document));
-  const serial = useResource<{ nextNumber: string }>(orgPath(organization.id, "/settings/serial"));
-  const sampleData = previewDataFor(document, organization.name, serial.data?.nextNumber);
+  const sampleData = previewDataFor(document, organization.name);
   const [name, setName] = useState(template.name);
   const [revision, setRevision] = useState(template.revision);
   const [dirty, setDirty] = useState(false);
@@ -115,7 +114,6 @@ export function TemplateEditor({
         ...current,
         widthMm,
         heightMm,
-        ...(current.verificationQr ? { verificationQr: { ...current.verificationQr, x: Math.min(current.verificationQr.x, widthMm - current.verificationQr.size), y: Math.min(current.verificationQr.y, heightMm - current.verificationQr.size) } } : {}),
         elements: current.elements.map((element) => ({
           ...element,
           x: round(element.x * scale + offsetX),
@@ -627,7 +625,6 @@ export function TemplateEditor({
               />
             </div>
           </section>
-          <section className="editor-section"><h2>公開驗證 QR Code</h2><label className="check"><input type="checkbox" checked={!!document.verificationQr} disabled={!canWrite} onChange={e => changeDocument(current => { const next = { ...current }; if (e.target.checked) next.verificationQr = { x: current.widthMm - 30, y: current.heightMm - 30, size: 22 }; else delete next.verificationQr; return next; })} />在證書上加入驗證 QR Code</label><p className="field-help">請保留白色邊界，避免文字或背景遮擋。樣張僅供檢查，正式 PDF 使用專屬連結。</p>{document.verificationQr && <div className="property-grid">{(['x','y','size'] as const).map(key => <NumberField key={key} label={key === 'size' ? 'QR 尺寸 mm' : `QR ${key.toUpperCase()} mm`} min={key === 'size' ? 20 : 0} max={key === 'size' ? 80 : 1000} value={document.verificationQr![key]} disabled={!canWrite} onChange={value => changeDocument(current => ({ ...current, verificationQr: { ...current.verificationQr!, [key]: value } }))} />)}</div>}</section>
           {selected ? (
             <section className="editor-section">
               <h2>文字屬性</h2>

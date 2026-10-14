@@ -27,70 +27,75 @@ type RecordRow = { rowNumber: number; data: Record<string, string> };
 const aliases: Record<string, string[]> = {
   recipient_name: ["姓名", "收件人姓名", "name"],
   recipient_email: ["email", "電子郵件", "信箱"],
+  certificate_number: ["流水號", "證書流水號", "證書編號", "編號", "serial", "serial_number"],
+  template: ["模板", "模板名稱", "證書模板", "template"],
   issue_date: ["發證日期", "日期"],
 };
+type Field = { key: string; label: string; required: boolean; note?: string };
+const builtinKeys = ["recipient_name", "recipient_email", "organization_name", "event_name", "certificate_number", "issue_date"];
 export function CreateBatchPage() {
   const { organization } = useWorkspace();
   const navigate = useNavigate();
-  const onCreated = (id: string) => navigate(`/o/${organization.id}/batches/${id}`, { replace: true });
+  const onCreated = (id: string) => navigate(`/${organization.slug}/batches/${id}`, { replace: true });
   const templates = usePagedResource<Template>(
     orgPath(organization.id, "/templates"),
   );
   const [expiresOn, setExpiresOn] = useState("");
   const [eventName, setEventName] = useState("");
-  const [templateVersionId, setTemplateVersionId] = useState("");
+  /** Selected version per template id; one event can use several templates. */
+  const [picked, setPicked] = useState<Record<string, string>>({});
   const [mode, setMode] = useState<"file" | "paste" | "manual">("file");
   const [csv, setCsv] = useState("");
   const [sheets, setSheets] = useState<Sheet[]>([]);
   const [sheetIndex, setSheetIndex] = useState(0);
   const [filename, setFilename] = useState("");
   const [mapping, setMapping] = useState<Record<string, string>>({});
-  const [manual, setManual] = useState<RecordRow[]>([
-    { rowNumber: 2, data: {} },
+  const [manual, setManual] = useState<(RecordRow & { key: number; templateVersionId?: string })[]>([
+    { key: 1, rowNumber: 1, data: {} },
   ]);
-  const nextManualRow = useRef(3);
+  const nextManualKey = useRef(2);
   const [validation, setValidation] = useState<Validation>();
   const [onlyErrors, setOnlyErrors] = useState(false);
   const action = useAction();
   const idempotencyKey = useRef(crypto.randomUUID());
-  const versions =
-    templates.data?.items.flatMap((t) =>
-      (t.versions ?? []).map((v) => ({ ...v, templateName: t.name })),
-    ) ?? [];
-  const version = versions.find((v) => v.id === templateVersionId);
-  const fields = [
+  const templateList = templates.data?.items.filter((t) => t.versions?.length) ?? [];
+  const selected = templateList.flatMap((t) => {
+    const version = t.versions.find((v) => v.id === picked[t.id]);
+    return version ? [{ ...version, templateName: t.name }] : [];
+  });
+  const templateVersionIds = selected.map((v) => v.id);
+  const multi = selected.length > 1;
+  const fields: Field[] = [
     { key: "recipient_name", label: "姓名", required: true },
     { key: "recipient_email", label: "Email", required: true },
-    ...(version?.document?.fields ?? []).filter(
-      (f) =>
-        ![
-          "recipient_name",
-          "recipient_email",
-          "organization_name",
-          "event_name",
-          "certificate_number",
-          "issue_date",
-        ].includes(f.key),
-    ),
-    { key: "issue_date", label: "發證日期", required: false },
+    { key: "certificate_number", label: "證書流水號", required: true, note: "組織內不可重複" },
+    ...(multi ? [{ key: "template", label: "模板", required: true, note: "填模板名稱" }] : []),
   ];
-  for (const key of version?.document
-    ? collectPlaceholders(version.document)
-    : []) {
-    if (
-      !["organization_name", "event_name", "certificate_number"].includes(
-        key,
-      ) &&
-      !fields.some((f) => f.key === key)
-    )
-      fields.push({ key, label: key, required: true });
+  // Custom fields from every selected template; required only where the recipient's template needs it.
+  for (const version of selected) {
+    const document = version.document;
+    if (!document) continue;
+    const keys = new Set(collectPlaceholders(document));
+    for (const field of document.fields) {
+      if (builtinKeys.includes(field.key)) continue;
+      const existing = fields.find((f) => f.key === field.key);
+      const required = field.required || keys.has(field.key);
+      if (existing) existing.note = multi ? "依模板" : existing.note;
+      else fields.push({ key: field.key, label: field.label, required: required && !multi, note: multi && required ? `${version.templateName}必填` : undefined });
+    }
   }
+  fields.push({ key: "issue_date", label: "發證日期", required: false });
   const sheet = sheets[sheetIndex];
   const records =
     mode === "manual"
-      ? manual
-      : (sheet?.rows.map((r) => ({
-          rowNumber: r.rowNumber,
+      ? manual.map(({ key: _key, ...row }, index) => ({
+          ...row,
+          rowNumber: index + 1,
+          templateVersionId: multi ? row.templateVersionId : undefined,
+        }))
+      : (sheet?.rows.map((r, index) => ({
+          // The first recipient is 1, whatever line of the spreadsheet it sits on.
+          rowNumber: index + 1,
           data: Object.fromEntries(
             fields
               .filter(
@@ -139,13 +144,15 @@ export function CreateBatchPage() {
   const payload = () => ({
     eventName,
     expiresOn: expiresOn || null,
-    templateVersionId,
+    templateVersionIds,
     ...(mode === "paste" ? { csv } : { records }),
   });
   const validate = () =>
     void action.run(async () => {
       if (mode === "file" && fields.some((f) => f.required && !mapping[f.key]))
-        throw new Error("請先對應所有必要欄位。");
+        throw new Error(`請先對應必要欄位：${fields.filter((f) => f.required && !mapping[f.key]).map((f) => f.label).join("、")}。`);
+      if (mode === "manual" && multi && manual.some((r) => !r.templateVersionId))
+        throw new Error("活動使用多個模板，請替每位收件人選擇模板。");
       setValidation(
         await post<Validation>(
           orgPath(organization.id, "/batches/validate"),
@@ -170,6 +177,8 @@ export function CreateBatchPage() {
             ({
               recipient_name: "王小明",
               recipient_email: "recipient@example.test",
+              certificate_number: "STA-2026-0001",
+              template: selected[0]?.templateName ?? "",
               issue_date: "2026-10-15",
             })[f.key] ?? "範例內容",
         ),
@@ -178,7 +187,7 @@ export function CreateBatchPage() {
     );
   return (
     <>
-      <BackLink to={`/o/${organization.id}/batches`}>返回發證活動</BackLink>
+      <BackLink to={`/${organization.slug}/batches`}>返回發證活動</BackLink>
       <PageHeader
         title="建立發證活動"
         description={`${organization.name}：選擇模板與名單來源，核對欄位後再建立活動。`}
@@ -193,7 +202,7 @@ export function CreateBatchPage() {
       <section className="panel form-panel stack">
         <div className="section-title">
           <h2>活動與模板</h2>
-          <p>選擇已發布的模板版本，名單欄位會隨模板調整。</p>
+          <p>選擇已發布的模板，名單欄位會隨模板調整。</p>
         </div>
         <div className="form-grid">
           <label className="field">
@@ -208,21 +217,6 @@ export function CreateBatchPage() {
               placeholder="例如：2026 秋季專業培訓"
               required
               disabled={action.busy}
-            />
-          </label>
-          <label className="field">
-            模板版本
-            <Select
-              label="模板版本"
-              value={templateVersionId}
-              onChange={(value) => {
-                setTemplateVersionId(value);
-                setMapping({});
-                invalidate();
-              }}
-              disabled={templates.loading || action.busy}
-              placeholder="選擇已發布模板"
-              options={versions.map((v) => ({ value: v.id, label: `${v.templateName} · 第 ${v.number} 版` }))}
             />
           </label>
           <div className="field">
@@ -243,15 +237,59 @@ export function CreateBatchPage() {
             </span>
           </div>
         </div>
+        <fieldset className="template-picker" disabled={templates.loading || action.busy}>
+          <legend>證書模板</legend>
+          <p className="field-help">
+            可以選多個。選兩個以上時，名單需要一欄「模板」，填入每位收件人要用的模板名稱。
+          </p>
+          <ul>
+            {templateList.map((t) => {
+              const on = !!picked[t.id];
+              return (
+                <li key={t.id} className={on ? "is-on" : undefined}>
+                  <label className="check">
+                    <input
+                      type="checkbox"
+                      checked={on}
+                      onChange={(e) => {
+                        setPicked((current) => {
+                          const next = { ...current };
+                          if (e.target.checked) next[t.id] = t.versions[0]!.id;
+                          else delete next[t.id];
+                          return next;
+                        });
+                        setMapping({});
+                        invalidate();
+                      }}
+                    />
+                    <span className="template-picker-name">{t.name}</span>
+                  </label>
+                  {on && t.versions.length > 1 ? (
+                    <Select
+                      label={`${t.name}的版本`}
+                      value={picked[t.id]!}
+                      onChange={(value) => {
+                        setPicked((current) => ({ ...current, [t.id]: value }));
+                        invalidate();
+                      }}
+                      options={t.versions.map((v) => ({ value: v.id, label: `第 ${v.number} 版` }))}
+                    />
+                  ) : (
+                    <span className="template-picker-version">第 {t.versions[0]!.number} 版</span>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </fieldset>
         <Pagination
           {...templates.pagination}
           onPageChange={(page) => {
             templates.pagination.onPageChange(page);
-            setTemplateVersionId("");
             invalidate();
           }}
         />
-        {!templates.loading && !versions.length && (
+        {!templates.loading && !templateList.length && (
           <Notice
             kind="info"
             message="本頁沒有已發布的模板。請切換模板頁，或先儲存並發布模板。"
@@ -327,13 +365,13 @@ export function CreateBatchPage() {
                       options={sheets.map((s, index) => ({ value: String(index), label: `${s.name}（${s.rows.length} 筆）` }))}
                     />
                   </label>
-                  <span>{sheet.rows.length} 筆名單 · 保留原始列號</span>
+                  <span>{sheet.rows.length} 筆名單 · 第一位收件人為第 1 筆</span>
                 </div>
                 <div className="mapping-grid">
                   {fields.map((f) => (
                     <label className="field" key={f.key}>
                       {f.label}
-                      {f.required ? "（必填）" : "（選填）"}
+                      {f.required ? "（必填）" : f.note ? `（${f.note}）` : "（選填）"}
                       <Select
                         label={`對應${f.label}`}
                         value={mapping[f.key] ?? ""}
@@ -374,7 +412,7 @@ export function CreateBatchPage() {
               }}
               rows={8}
               disabled={action.busy}
-              placeholder="recipient_name,recipient_email"
+              placeholder={multi ? "recipient_name,recipient_email,certificate_number,template" : "recipient_name,recipient_email,certificate_number"}
               spellCheck={false}
             />
           </label>
@@ -385,7 +423,7 @@ export function CreateBatchPage() {
               <table className="data-table manual-table">
                 <thead>
                   <tr>
-                    <th>來源列號</th>
+                    <th>序號</th>
                     {fields.map((f) => (
                       <th key={f.key}>
                         {f.label}
@@ -397,10 +435,23 @@ export function CreateBatchPage() {
                 </thead>
                 <tbody>
                   {manual.map((r, index) => (
-                    <tr key={r.rowNumber}>
-                      <td>{r.rowNumber}</td>
+                    <tr key={r.key}>
+                      <td>{index + 1}</td>
                       {fields.map((f) => (
                         <td key={f.key}>
+                          {f.key === "template" ? (
+                            <Select
+                              label={`第 ${index + 1} 人的模板`}
+                              value={r.templateVersionId ?? ""}
+                              disabled={action.busy}
+                              placeholder="選擇模板"
+                              onChange={(value) => {
+                                setManual((current) => current.map((row) => (row.key === r.key ? { ...row, templateVersionId: value } : row)));
+                                invalidate();
+                              }}
+                              options={selected.map((v) => ({ value: v.id, label: v.templateName }))}
+                            />
+                          ) : (
                           <input
                             aria-label={`第 ${index + 1} 人${f.label}`}
                             value={r.data[f.key] ?? ""}
@@ -409,7 +460,7 @@ export function CreateBatchPage() {
                             onChange={(e) => {
                               setManual((current) =>
                                 current.map((row) =>
-                                  row.rowNumber === r.rowNumber
+                                  row.key === r.key
                                     ? {
                                         ...row,
                                         data: {
@@ -423,6 +474,7 @@ export function CreateBatchPage() {
                               invalidate();
                             }}
                           />
+                          )}
                         </td>
                       ))}
                       <td>
@@ -433,9 +485,7 @@ export function CreateBatchPage() {
                           disabled={action.busy || manual.length === 1}
                           onClick={() => {
                             setManual((current) =>
-                              current.filter(
-                                (row) => row.rowNumber !== r.rowNumber,
-                              ),
+                              current.filter((row) => row.key !== r.key),
                             );
                             invalidate();
                           }}
@@ -454,7 +504,7 @@ export function CreateBatchPage() {
               onClick={() => {
                 setManual((current) => [
                   ...current,
-                  { rowNumber: nextManualRow.current++, data: {} },
+                  { key: nextManualKey.current++, rowNumber: current.length + 1, data: {} },
                 ]);
                 invalidate();
               }}
@@ -465,7 +515,7 @@ export function CreateBatchPage() {
           </>
         )}
         <p className="field-help">
-          姓名與 Email 必填，日期請使用 YYYY-MM-DD。Excel
+          姓名、Email 與證書流水號必填，流水號在組織內不可重複；日期請使用 YYYY-MM-DD。Excel
           日期儲存格會自動轉換；公式請先貼上為值。檢查通過前不會建立活動。
         </p>
         <div className="form-footer">
@@ -475,7 +525,7 @@ export function CreateBatchPage() {
             disabled={
               action.busy ||
               !eventName.trim() ||
-              !templateVersionId ||
+              !templateVersionIds.length ||
               (mode === "paste" ? !csv.trim() : !records.length)
             }
           >
@@ -509,12 +559,13 @@ export function CreateBatchPage() {
                 onClick={() =>
                   saveBlob(
                     csvBlob([
-                      ["原始列號", "姓名", "Email", "欄位", "錯誤原因"],
+                      ["序號", "姓名", "Email", "證書流水號", "欄位", "錯誤原因"],
                       ...validation.rows.flatMap((r) =>
                         r.errors.map((e) => [
                           r.rowNumber,
                           r.data.recipient_name ?? "",
                           r.data.recipient_email ?? "",
+                          r.data.certificate_number ?? "",
                           e.field,
                           e.message,
                         ]),
@@ -542,7 +593,7 @@ export function CreateBatchPage() {
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>原始列號</th>
+                  <th>序號</th>
                   {fields.map((f) => (
                     <th key={f.key}>{f.label}</th>
                   ))}
@@ -556,14 +607,18 @@ export function CreateBatchPage() {
                     <tr key={r.rowNumber}>
                       <td>{r.rowNumber}</td>
                       {fields.map((f) => (
-                        <td key={f.key}>{r.data[f.key] || "—"}</td>
+                        <td key={f.key}>
+                          {f.key === "template"
+                            ? (validation.templates?.find((t) => t.id === r.templateVersionId)?.name ?? "—")
+                            : r.data[f.key] || "—"}
+                        </td>
                       ))}
                       <td>
                         {r.errors.length ? (
                           <ul className="validation-errors">
                             {r.errors.map((e, i) => (
                               <li key={i}>
-                                {e.field}：{e.message}
+                                {fields.find((f) => f.key === e.field)?.label ?? (e.field === "row" ? "整列" : e.field)}：{e.message}
                               </li>
                             ))}
                           </ul>

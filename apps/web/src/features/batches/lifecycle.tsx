@@ -5,7 +5,7 @@ import { useAction, usePagedResource } from '../../lib/hooks';
 import { Notice, Pagination, Status } from '../../ui/feedback';
 import { formatDate } from '../../lib/format';
 import { Button } from '../../ui/Button';
-export const actionNames: Record<string,string> = { 'certificate.expiry_changed': '調整證書期限', 'batch.created': '建立活動', 'batch.edited': '編輯活動', 'batch.cancelled': '取消活動', 'certificate.revoked': '撤銷證書', 'certificate.reissued': '重新發放證書', 'batch.generate_requested': '提交產製', 'batch.retry_failed': '重試失敗項目', 'batch.mail_requested': '提交寄送通知', 'batch.mail_retry_requested': '重試失敗通知', 'batch.zip_downloaded': '下載證書 ZIP', 'batch.failure_report_downloaded': '下載失敗報告', 'template.created': '建立模板', 'template.updated': '儲存模板草稿', 'template.published': '發布模板版本', 'asset.uploaded': '上傳背景', 'certificate.downloaded': '下載證書 PDF', 'recipient.downloaded': '收件人下載證書', 'organization.serial_updated': '變更流水號規則' };
+export const actionNames: Record<string,string> = { 'certificate.expiry_changed': '調整證書期限', 'batch.created': '建立活動', 'batch.edited': '編輯活動', 'batch.cancelled': '取消活動', 'certificate.revoked': '撤銷證書', 'certificate.reissued': '重新發放證書', 'batch.generate_requested': '提交產製', 'batch.retry_failed': '重試失敗項目', 'batch.mail_requested': '提交寄送通知', 'batch.mail_retry_requested': '重試失敗通知', 'batch.zip_downloaded': '下載證書 ZIP', 'batch.failure_report_downloaded': '下載失敗報告', 'template.created': '建立模板', 'template.updated': '儲存模板草稿', 'template.published': '發布模板版本', 'asset.uploaded': '上傳背景', 'certificate.downloaded': '下載證書 PDF', 'recipient.downloaded': '收件人下載證書', 'organization.serial_updated': '變更流水號規則', 'organization.slug_updated': '變更工作空間網址', 'certificate.downloaded_with_password': '以流水號與密碼下載' };
 export function AuditDetail({ audit }: { audit: Audit }) {
   const metadata = audit.metadata as { actorEmail?: string; reason?: string } | undefined;
   return <><strong>{actionNames[audit.action] ?? audit.action}</strong><span className="cell-sub">{metadata?.actorEmail ?? audit.actor?.email ?? audit.actorId ?? '系統'} · {formatDate(audit.createdAt)}</span>{metadata?.reason && <p>{metadata.reason}</p>}{audit.metadata != null && <details><summary>查看完整操作資料</summary><pre className="audit-json">{JSON.stringify(audit.metadata, null, 2)}</pre></details>}</>;
@@ -14,18 +14,21 @@ export function BatchHistory({ org, id, revision }: { org: string; id: string; r
   const history = usePagedResource<Audit>(orgPath(org, `/batches/${id}/history?revision=${revision}`), 50);
   return <section className="panel lifecycle-history"><div className="section-title"><h2>操作紀錄</h2><p>保留操作原因、執行者、變更前後資料，以及新舊證書的關聯。</p></div><Notice message={history.error} />{history.data?.items.map(a => <article key={a.id}><AuditDetail audit={a} /></article>)}<Pagination {...history.pagination} /></section>;
 }
+/** Editable copy of a row; the serial field is always shown, even on rows imported before serials were required. */
+const toRecord = (r: BatchRow) => ({ rowNumber: r.rowNumber, templateVersionId: r.templateVersionId, data: { recipient_name: '', recipient_email: '', certificate_number: '', ...r.data } });
+const fieldLabels: Record<string, string> = { recipient_name: '姓名', recipient_email: 'Email', certificate_number: '證書流水號', issue_date: '發證日期' };
 export function LifecycleActions({ org, batch, row, permissions, reload }: { org: string; batch: Batch; row?: BatchRow; permissions: string[]; reload: () => Promise<void> }) {
   const [mode, setMode] = useState<'edit'|'cancel'|'revoke'|'reissue'|'expiry'|null>(null);
   const [expiresOn, setExpiresOn] = useState('');
   const [reason, setReason] = useState('');
   const [name, setName] = useState(batch.eventName);
-  const [records, setRecords] = useState(batch.rows.map(r => ({ rowNumber: r.rowNumber, data: { ...r.data } })));
+  const [records, setRecords] = useState(batch.rows.map(toRecord));
   const dialog = useRef<HTMLDialogElement>(null);
   const heading = useId();
   const action = useAction();
   const title = mode === 'expiry' ? '調整有效期限' : mode === 'edit' ? '編輯活動' : mode === 'cancel' ? '取消活動' : mode === 'revoke' ? '撤銷證書' : '重新發放證書';
   useEffect(() => { if (mode) dialog.current?.showModal(); }, [mode]);
-  const open = (m: typeof mode) => { setExpiresOn((row?.certificate?.expiresAt ?? batch.expiresAt ?? '').slice(0,10)); setReason(''); setName(batch.eventName); setRecords((row ? [row] : batch.rows).map(r => ({ rowNumber: r.rowNumber, data: { ...r.data } }))); setMode(m); };
+  const open = (m: typeof mode) => { setExpiresOn((row?.certificate?.expiresAt ?? batch.expiresAt ?? '').slice(0,10)); setReason(''); setName(batch.eventName); setRecords((row ? [row] : batch.rows).map(toRecord)); setMode(m); };
   const submit = () => void action.run(async () => {
     const path = mode === 'edit' ? `/batches/${batch.id}` : mode === 'cancel' ? `/batches/${batch.id}/cancel` : `/certificates/${row!.certificate!.id}/${mode}`;
     await api(orgPath(org, path), { method: mode === 'edit' ? 'PUT' : 'POST', body: JSON.stringify(mode === 'edit' ? { reason, revision: batch.revision, eventName: name, records, expiresOn: expiresOn || null } : mode === 'cancel' ? { reason, revision: batch.revision } : mode === 'expiry' ? { reason, expiresOn: expiresOn || null, revision: row!.certificate!.revision } : { reason, ...(mode === 'reissue' ? { data: records[0]!.data, expiresOn: expiresOn || null } : {}) }) });
@@ -47,9 +50,9 @@ export function LifecycleActions({ org, batch, row, permissions, reload }: { org
       <form className="dialog-body" onSubmit={e => { e.preventDefault(); submit(); }}>
         <h2 id={heading}>{title}</h2>
         <p className="dialog-subject">{row ? row.data.recipient_name : batch.eventName}</p>
-        <p className="field-help">{mode === 'expiry' ? '效期以台北時間當日 23:59:59 為準；調整不會重寫原 PDF，公開驗證頁顯示最新期限。留空代表無到期日。' : mode === 'edit' ? '更新後需重新預覽樣張，修改前後的名單都會保留在操作紀錄。' : mode === 'reissue' ? '補發會建立新編號及 PDF，舊證書將失效。完成後請到通知分頁寄送新版通知。' : '此操作無法復原。失效證書將停止下載與尚未開始的寄送；已開始寄送或已寄出的郵件無法收回。'}</p>
+        <p className="field-help">{mode === 'expiry' ? '效期以台北時間當日 23:59:59 為準；調整不會重寫原 PDF，流水號查詢顯示最新期限。留空代表無到期日。' : mode === 'edit' ? '更新後需重新預覽樣張，修改前後的名單都會保留在操作紀錄。' : mode === 'reissue' ? '補發會產生新版 PDF，舊版立即失效。流水號不變時沿用原本的下載密碼，收件人用原通知信就能下載新版；改用新流水號則需重新寄送通知。' : '此操作無法復原。失效證書將停止下載與尚未開始的寄送；已開始寄送或已寄出的郵件無法收回。'}</p>
         {mode === 'edit' && <label className="field">活動名稱<input autoFocus required maxLength={160} value={name} onChange={e => setName(e.target.value)} /></label>}
-        {(mode === 'edit' || mode === 'reissue') && <div className="lifecycle-fields">{records.map((record, index) => <fieldset key={record.rowNumber}><legend>收件人 {index + 1} · 來源列號 {record.rowNumber}</legend>{Object.entries(record.data).map(([key,value]) => <label className="field" key={key}>{({ recipient_name: '姓名', recipient_email: 'Email', issue_date: '發證日期' } as Record<string,string>)[key] ?? key}<input type={key === 'recipient_email' ? 'email' : 'text'} maxLength={500} required={['recipient_name','recipient_email'].includes(key)} value={value} onChange={e => setRecords(current => current.map((r,i) => i === index ? { ...r, data: { ...r.data, [key]: e.target.value } } : r))} /></label>)}</fieldset>)}</div>}
+        {(mode === 'edit' || mode === 'reissue') && <div className="lifecycle-fields">{records.map((record, index) => <fieldset key={record.rowNumber}><legend>第 {record.rowNumber} 筆{(batch.templates?.length ?? 0) > 1 ? ` · ${batch.rows.find(r => r.rowNumber === record.rowNumber)?.templateName ?? ''}` : ''}</legend>{Object.entries(record.data).map(([key,value]) => <label className="field" key={key}>{fieldLabels[key] ?? key}<input type={key === 'recipient_email' ? 'email' : 'text'} maxLength={500} required={['recipient_name','recipient_email','certificate_number'].includes(key)} value={value} onChange={e => setRecords(current => current.map((r,i) => i === index ? { ...r, data: { ...r.data, [key]: e.target.value } } : r))} /></label>)}</fieldset>)}</div>}
         {["expiry", "edit", "reissue"].includes(mode) && <label className="field">證書到期日（選填）<input type="date" value={expiresOn} onChange={e => setExpiresOn(e.target.value)} /></label>}
         <label className="field">操作原因<textarea autoFocus={mode === 'cancel' || mode === 'revoke'} required maxLength={500} value={reason} onChange={e => setReason(e.target.value)} placeholder="說明本次修改、取消或補發的原因" /></label>
         <Notice message={action.error} />

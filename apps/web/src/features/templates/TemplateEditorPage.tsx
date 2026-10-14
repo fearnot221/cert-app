@@ -29,11 +29,11 @@ export function TemplateEditorPage() {
     window.addEventListener("beforeunload", leave);
     return () => window.removeEventListener("beforeunload", leave);
   }, [dirty]);
-  const close = useCallback(() => navigate(`/o/${organization.id}/templates`), [navigate, organization.id]);
+  const close = useCallback(() => navigate(`/${organization.slug}/templates`), [navigate, organization.id]);
   if (!template)
     return resource.error ? (
       <div className="stack">
-        <BackLink to={`/o/${organization.id}/templates`}>返回證書模板</BackLink>
+        <BackLink to={`/${organization.slug}/templates`}>返回證書模板</BackLink>
         <LoadError error={resource.error} retry={() => void resource.reload()} />
       </div>
     ) : (

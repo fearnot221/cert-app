@@ -36,3 +36,15 @@ UPDATE "BatchRow" SET "rowNumber" = -"rowNumber";
 UPDATE "BatchRow" r SET "rowNumber" = n.position
   FROM (SELECT id, ROW_NUMBER() OVER (PARTITION BY "batchId" ORDER BY -"rowNumber") AS position FROM "BatchRow") n
   WHERE n.id = r.id;
+
+-- Short workspace addresses such as /zhixing/templates instead of the organization UUID.
+ALTER TABLE "Organization" ADD COLUMN "slug" TEXT;
+UPDATE "Organization" SET "slug" = CASE id
+  WHEN '00000000-0000-4000-8000-000000000001' THEN 'zhixing'
+  WHEN '00000000-0000-4000-8000-000000000002' THEN 'qinghe'
+  ELSE 'org-' || substr(md5(id), 1, 8) END;
+ALTER TABLE "Organization"
+  ALTER COLUMN "slug" SET NOT NULL,
+  ALTER COLUMN "slug" SET DEFAULT ('org-' || substr(md5(random()::text), 1, 8)),
+  ADD CONSTRAINT "Organization_slug_check" CHECK ("slug" ~ '^[a-z0-9][a-z0-9-]{1,31}$');
+CREATE UNIQUE INDEX "Organization_slug_key" ON "Organization"("slug");

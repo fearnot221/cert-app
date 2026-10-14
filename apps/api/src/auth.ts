@@ -140,7 +140,7 @@ export async function registerAuth(app: FastifyInstance) {
     return {
       user: { id: user.id, email: user.email },
       memberships: memberships.map((m) => ({
-        organization: { id: m.organization.id, name: m.organization.name },
+        organization: { id: m.organization.id, name: m.organization.name, slug: m.organization.slug },
         role: m.role.name,
         permissions: m.role.permissions,
       })),

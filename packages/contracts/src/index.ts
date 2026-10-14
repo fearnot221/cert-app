@@ -80,7 +80,7 @@ export const TemplateDocumentSchema = z
     heightMm: finite.min(50).max(1000),
     backgroundAssetId: safeId.optional(),
     /** Retired public-verification QR position. Older versions still carry it; it is never drawn. */
-    verificationQr: z.unknown().optional(),
+    verificationQr: z.record(z.string(), z.number()).optional(),
     elements: z.array(TextElementSchema).max(100),
     fields: z.array(FieldDefinitionSchema).max(100),
   })
@@ -148,6 +148,19 @@ export type CertificateData = Record<string, string | number>;
  * after NFKC normalisation and upper-casing, so a full-width or lower-case copy finds the same serial.
  */
 export const SERIAL_PATTERN = /^[\p{L}\p{N}][\p{L}\p{N}\-_.\/#()]{0,63}$/u;
+/** First path segment of every page outside a workspace; an organization cannot take these as its address. */
+export const RESERVED_SLUGS = [
+  "o", "api", "login", "activate", "reset-password", "verify", "download", "me", "workspace",
+  "certificates", "my-certificates", "assets", "landing", "fonts", "settings", "admin", "help",
+] as const;
+/** Workspace address, e.g. /zhixing/templates. */
+export const OrganizationSlugSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .regex(/^[a-z0-9][a-z0-9-]{1,31}$/, "網址代稱需為 2 至 32 個小寫英文字母、數字或連字號，且不以連字號開頭")
+  .refine((value) => !(RESERVED_SLUGS as readonly string[]).includes(value), "這個網址代稱保留給系統頁面使用");
+
 export function normalizeSerial(value: string) {
   return value.normalize("NFKC").trim().toUpperCase();
 }

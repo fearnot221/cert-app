@@ -8,7 +8,6 @@ import type { MyCertificate } from "../../lib/types";
 import { Button } from "../../ui/Button";
 import { Select } from "../../ui/Select";
 import { Empty, Loading, LoadError, Notice, PageHeader, Pagination, Status } from "../../ui/feedback";
-import { VerificationLinks } from "../verification/VerificationPage";
 
 export function MyCertificatesPage() {
   const resource = usePagedResource<MyCertificate>("/me/certificates");
@@ -109,7 +108,6 @@ export function MyCertificatesPage() {
                           <DownloadIcon />
                           下載 PDF
                         </Button>
-                        <VerificationLinks url={certificate.verificationUrl} />
                       </div>
                     </div>
                   </li>

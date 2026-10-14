@@ -21,11 +21,11 @@ const user = await db.user.upsert({
   },
   update: {},
 });
-for (const [i, name] of ["知行培訓中心", "青禾教育基金會"].entries()) {
+for (const [i, [name, slug]] of [["知行培訓中心", "zhixing"], ["青禾教育基金會", "qinghe"]].entries()) {
   const orgId = `00000000-0000-4000-8000-00000000000${i + 1}`;
   const org = await db.organization.upsert({
     where: { id: orgId },
-    create: { id: orgId, name },
+    create: { id: orgId, name: name!, slug: slug! },
     update: {},
   });
   for (const [name, permissions] of Object.entries(rolePermissions)) {
@@ -79,12 +79,17 @@ for (const [i, name] of ["知行培訓中心", "青禾教育基金會"].entries(
         fromAddress: `certificates${i + 1}@example.test`,
       },
     });
-  if (!(await db.template.findFirst({ where: { organizationId: org.id } }))) {
-    const document = createDefaultDocument();
+  // Two templates, so one event can mix them: the list's `template` column picks one per recipient.
+  const hours = createDefaultDocument();
+  hours.fields.push({ key: "hours", label: "研習時數", type: "number", required: true });
+  hours.elements[1]!.text = "研習時數證明";
+  hours.elements[3]!.text = "完成 {{event_name}}，共 {{hours}} 小時";
+  for (const [name, document] of [["結業證書範本", createDefaultDocument()], ["研習時數證明", hours]] as const) {
+    if (await db.template.findFirst({ where: { organizationId: org.id, name } })) continue;
     const template = await db.template.create({
       data: {
         organizationId: org.id,
-        name: "結業證書範本",
+        name,
         document,
         status: "published",
       },

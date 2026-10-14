@@ -28,6 +28,8 @@ model Session {
 model Organization {
   id String @id @default(uuid())
   name String
+  /// Short, editable workspace address: /<slug>/templates.
+  slug String @unique @default(dbgenerated("('org-'::text || substr(md5((random())::text), 1, 8))"))
   active Boolean @default(true)
   createdAt DateTime @default(now())
   roles Role[]

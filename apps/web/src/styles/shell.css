@@ -485,3 +485,17 @@
     width: 120px;
   }
 }
+
+/* ---------- Recipient download: serial and password side by side ---------- */
+.download-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px 24px;
+}
+.download-form .field input {
+  background: var(--color-ground);
+  font-size: 18px;
+}
+.verify-bar .text-link {
+  color: var(--color-ink);
+}

@@ -74,10 +74,15 @@ export function useSession() {
 
 /** Where a person lands after signing in: their first organization, or their own certificates. */
 export function homePath(session: Session | null) {
-  const first = session?.memberships[0]?.organization.id;
-  return first ? `/o/${first}/templates` : "/me";
+  const first = session?.memberships[0]?.organization;
+  return first ? workspacePath(first, "templates") : "/me";
 }
 
-export function findMembership(session: Session | null, organizationId?: string): Membership | undefined {
-  return session?.memberships.find((m) => m.organization.id === organizationId);
+/** Workspace pages live under the organization's short address, e.g. /zhixing/batches. */
+export function workspacePath(organization: { slug: string }, path = "templates") {
+  return `/${organization.slug}${path ? `/${path}` : ""}`;
+}
+
+export function findMembership(session: Session | null, slug?: string): Membership | undefined {
+  return session?.memberships.find((m) => m.organization.slug === slug);
 }

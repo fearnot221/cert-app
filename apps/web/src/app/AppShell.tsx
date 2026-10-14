@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { Navigate, NavLink, Outlet, useLocation, useMatches, useNavigate, useParams } from "react-router";
 import { ExitIcon } from "@radix-ui/react-icons";
-import { findMembership, useSession } from "./session";
+import { findMembership, homePath, useSession, workspacePath } from "./session";
 import type { Membership } from "../lib/types";
 import { roleNames } from "../lib/format";
 import { Button } from "../ui/Button";
@@ -66,16 +66,16 @@ function Shell({ membership, children }: { membership?: Membership; children: Re
       </a>
       <header className="app-bar">
         <div className="app-bar-row">
-          <Wordmark to={current ? `/o/${current.organization.id}/templates` : "/me"} />
+          <Wordmark to={current ? workspacePath(current.organization) : "/me"} />
           {current && (
             <label className="org-switch">
               <span className="sr-only">目前組織</span>
               <Select
                 variant="pill"
                 label="目前組織"
-                value={current.organization.id}
-                onChange={(id) => navigate(`/o/${id}/templates`)}
-                options={memberships.map((m) => ({ value: m.organization.id, label: m.organization.name }))}
+                value={current.organization.slug}
+                onChange={(slug) => navigate(`/${slug}/templates`)}
+                options={memberships.map((m) => ({ value: m.organization.slug, label: m.organization.name }))}
               />
               <span className="org-role">{roleNames[current.role.toLowerCase()] ?? current.role}</span>
             </label>
@@ -83,7 +83,7 @@ function Shell({ membership, children }: { membership?: Membership; children: Re
           {current && (
             <nav className="app-nav" aria-label="主要導覽" ref={nav}>
               {sections.map((item) => (
-                <NavLink key={item.to} to={`/o/${current.organization.id}/${item.to}`}>
+                <NavLink key={item.to} to={workspacePath(current.organization, item.to)}>
                   {item.label}
                 </NavLink>
               ))}
@@ -119,13 +119,10 @@ export function AccountLayout() {
 }
 
 export function WorkspaceLayout() {
-  const { orgId } = useParams();
+  const { orgSlug } = useParams();
   const { session } = useSession();
-  const membership = findMembership(session, orgId);
-  if (!membership) {
-    const first = session?.memberships[0]?.organization.id;
-    return <Navigate to={first ? `/o/${first}/templates` : "/me"} replace />;
-  }
+  const membership = findMembership(session, orgSlug);
+  if (!membership) return <Navigate to={homePath(session)} replace />;
   return (
     <WorkspaceContext.Provider
       key={membership.organization.id}
@@ -136,4 +133,12 @@ export function WorkspaceLayout() {
       </Shell>
     </WorkspaceContext.Provider>
   );
+}
+
+/** Old /o/<uuid>/… links keep working: they move to the organization's short address. */
+export function LegacyWorkspaceRedirect() {
+  const { orgId = "", "*": rest = "" } = useParams();
+  const { session } = useSession();
+  const membership = session?.memberships.find((m) => m.organization.id === orgId);
+  return <Navigate to={membership ? workspacePath(membership.organization, rest) : homePath(session)} replace />;
 }
