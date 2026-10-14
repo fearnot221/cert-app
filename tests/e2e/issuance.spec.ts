@@ -8,7 +8,7 @@ test("芫荽模板 → 批次 PDF → 重發啟用 → 手機下載 → 重設�
   const unique = Date.now().toString();
   const eventName = `E2E 中文培訓 ${unique}`;
   const email = `e2e-${unique}@example.test`;
-  await page.goto("/");
+  await page.goto("/login");
   await page
     .getByLabel("電子郵件", { exact: true })
     .fill(process.env.SEED_ADMIN_EMAIL || "admin@example.test");
@@ -64,8 +64,8 @@ test("芫荽模板 → 批次 PDF → 重發啟用 → 手機下載 → 重設�
     page.getByText("已發布不可變的新版本，現在可以用於發證活動。"),
   ).toBeVisible();
   await page.screenshot({ path: "test-results/editor.png", fullPage: true });
-  await page.getByRole("button", { name: "發證活動", exact: true }).click();
-  await page.getByRole("button", { name: "建立發證活動", exact: true }).click();
+  await page.getByRole("link", { name: "發證活動", exact: true }).click();
+  await page.getByRole("link", { name: "建立發證活動", exact: true }).click();
   await page.getByLabel("活動名稱", { exact: true }).fill(eventName);
   await page
     .getByRole("combobox", { name: /模板版本/ })
@@ -206,7 +206,7 @@ test("芫荽模板 → 批次 PDF → 重發啟用 → 手機下載 → 重設�
     viewport: { width: 390, height: 844 },
   });
   const recovery = await recoveryContext.newPage();
-  await recovery.goto("/");
+  await recovery.goto("/login");
   await recovery.getByRole("button", { name: "忘記密碼", exact: true }).click();
   await recovery.getByLabel("電子郵件", { exact: true }).fill(email);
   await recovery.getByRole("button", { name: "寄送連結", exact: true }).click();

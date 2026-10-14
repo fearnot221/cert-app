@@ -1,55 +1,83 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { api, errorMessage } from './api';
+import { useCallback, useState } from "react";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+import { api, errorMessage } from "./api";
 
-export function useResource<T>(path: string | null) {
-  const [state, setState] = useState<{ path: string | null; data?: T; error: string; loading: boolean }>({ path, error: '', loading: !!path });
-  const sequence = useRef(0);
+/**
+ * Server state goes through TanStack Query: one cache keyed by API path, so leaving and returning to
+ * a page shows the last result immediately while it refreshes.
+ */
+export function useResource<T>(path: string | null, options: { refetchInterval?: number | false; gcTime?: number } = {}) {
+  const query = useQuery({
+    queryKey: [path],
+    queryFn: () => api<T>(path!),
+    enabled: !!path,
+    refetchInterval: options.refetchInterval,
+    gcTime: options.gcTime,
+  });
+  const { refetch } = query;
   const reload = useCallback(async () => {
-    if (!path) return;
-    const current = ++sequence.current;
-    setState(previous => ({ path, data: previous.path === path ? previous.data : undefined, error: '', loading: true }));
-    try {
-      const result = await api<T>(path);
-      if (current === sequence.current) setState({ path, data: result, error: '', loading: false });
-    } catch (error) {
-      if (current === sequence.current) setState(previous => ({ ...previous, path, error: errorMessage(error), loading: false }));
-    }
-  }, [path]);
-  useEffect(() => {
-    void reload();
-    return () => { sequence.current++; };
-  }, [reload]);
-  const matches = state.path === path;
-  return { data: matches ? state.data : undefined, error: matches ? state.error : '', loading: matches ? state.loading : !!path, reload };
+    await refetch();
+  }, [refetch]);
+  return {
+    data: query.data,
+    error: query.error ? errorMessage(query.error) : "",
+    /** True on the first load, when nothing is cached for this path yet. */
+    pending: !!path && query.isPending,
+    /** True while any request for this path is in flight, including background refreshes. */
+    loading: !!path && query.isFetching,
+    reload,
+  };
 }
 
 export function usePagedResource<T>(path: string, pageSize = 50) {
   const [position, setPosition] = useState({ path, page: 0 });
   const page = position.path === path ? position.page : 0;
   // Fetch one extra item to determine whether another page exists without guessing a total.
-  const resource = useResource<{ items: T[] }>(`${path}${path.includes('?') ? '&' : '?'}take=${pageSize + 1}&skip=${page * pageSize}`);
-  const items = resource.data?.items.slice(0, pageSize);
+  const url = `${path}${path.includes("?") ? "&" : "?"}take=${pageSize + 1}&skip=${page * pageSize}`;
+  const query = useQuery({
+    queryKey: [url],
+    queryFn: () => api<{ items: T[] }>(url),
+    placeholderData: keepPreviousData,
+  });
+  const { refetch } = query;
+  const reload = useCallback(async () => {
+    await refetch();
+  }, [refetch]);
+  const items = query.data?.items.slice(0, pageSize);
   return {
-    ...resource,
     data: items ? { items } : undefined,
+    error: query.error ? errorMessage(query.error) : "",
+    pending: query.isPending,
+    loading: query.isFetching,
+    reload,
     pagination: {
       page,
       pageSize,
-      hasNext: (resource.data?.items.length ?? 0) > pageSize,
+      hasNext: (query.data?.items.length ?? 0) > pageSize,
       onPageChange: (next: number) => setPosition({ path, page: Math.max(0, next) }),
     },
   };
 }
 
+/** Runs one write at a time. After it finishes, every cached list is marked stale so other pages show the change. */
 export function useAction() {
+  const queryClient = useQueryClient();
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
   const run = async (action: () => Promise<void>) => {
     if (busy) return;
-    setBusy(true); setError(''); setSuccess('');
-    try { await action(); } catch (error) { setError(errorMessage(error)); }
-    finally { setBusy(false); }
+    setBusy(true);
+    setError("");
+    setSuccess("");
+    try {
+      await action();
+    } catch (error) {
+      setError(errorMessage(error));
+    } finally {
+      setBusy(false);
+      void queryClient.invalidateQueries({ predicate: (query) => query.queryKey[0] !== "session" });
+    }
   };
   return { busy, error, success, setError, setSuccess, run };
 }

@@ -506,6 +506,22 @@ describe("tenant boundaries and permission enforcement", () => {
       (
         await owner.request(
           "GET",
+          `/api/organizations/${orgA}/templates/${templateB}`,
+        )
+      ).statusCode,
+    ).toBe(404);
+    expect(
+      (
+        await owner.request(
+          "GET",
+          `/api/organizations/${orgB}/templates/${templateB}`,
+        )
+      ).statusCode,
+    ).toBe(403);
+    expect(
+      (
+        await owner.request(
+          "GET",
           `/api/organizations/${orgA}/batches/${batchB}`,
         )
       ).statusCode,

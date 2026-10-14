@@ -16,6 +16,7 @@
 | PDF | 共用 React/HTML/CSS、Noto Sans TC／芫荽 Iansui hash／缺字檢查、等待字型／圖片、換行縮字／溢位阻擋、伺服器樣張、授權單張下載 | 已實作，真實 Chromium renderer 測試與 Docker sandbox smoke 通過 |
 | 小批次 | <=100 列 Excel／CSV／手動名單、日期型別與原始列號 dry run、逐列 server PDF 預覽、明確生成、DB 唯一鍵、outbox、BullMQ、只重試失敗列、全部／勾選 ZIP、失敗 CSV 報告 | 已實作；真實 worker SIGKILL／重啟與寫檔失敗重試演練通過 |
 | 郵件／收件 | 明確 Mailpit 通知、組織 SenderIdentity、accepted／unknown、啟用與登入、本人 PDF 下載 | 已實作，Mailpit 瀏覽器 E2E 通過 |
+| 前端改版 | 公開首頁（真偽查詢入口）、頂部導覽取代側欄、React Router／TanStack Query／feature 資料夾、Tailwind v4 token；API 與業務行為不變（另新增唯讀 `GET /api/organizations/:org/templates/:id` 供編輯器直接開啟） | 已實作；typecheck、lint、build 與 3 項 Playwright E2E 通過 |
 | 文件 | PRD、架構、權限、郵件、字型、驗收、設計、部署及備份手冊 | 已建立，區分實作與後續目標 |
 | 部署／測試 | migration、開發 seed、Compose、production 準備 overlay、GitHub Actions | 本地鏡像與配置驗證通過；未在遠端 CI／production 執行 |
 

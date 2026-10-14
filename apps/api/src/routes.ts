@@ -157,6 +157,21 @@ export async function registerRoutes(app: FastifyInstance) {
       }),
     };
   });
+  app.get("/api/organizations/:org/templates/:id", async (req) => {
+    const { org, id } = params(req);
+    await authorize(req, org, "templates.read");
+    const template = await db.template.findFirst({
+      where: { id, organizationId: org },
+      include: {
+        versions: {
+          select: { id: true, number: true, document: true },
+          orderBy: { number: "desc" },
+        },
+      },
+    });
+    if (!template) fail(404, "找不到模板");
+    return template;
+  });
   app.post("/api/organizations/:org/templates", async (req) => {
     const { org } = params(req);
     const { user } = await authorize(req, org, "templates.write");

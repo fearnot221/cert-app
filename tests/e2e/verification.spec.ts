@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 
 test('公開驗證無需登入，QR 下載、期限調整、到期、被取代及撤銷', async ({ page, browser }) => {
   const name = `公開驗證 ${Date.now()}`;
-  await page.goto('/');
+  await page.goto('/login');
   await page.getByLabel('電子郵件', { exact: true }).fill(process.env.SEED_ADMIN_EMAIL || 'admin@example.test');
   await page.getByLabel('密碼', { exact: true }).fill(process.env.SEED_ADMIN_PASSWORD || 'Local-Cert-Only-2026!');
   await page.getByRole('button', { name: '登入工作空間' }).click();
@@ -26,9 +26,9 @@ test('公開驗證無需登入，QR 下載、期限調整、到期、被取代�
   await expect.poll(async () => (await (await page.request.get(detailPath)).json()).status, { timeout: 60000 }).toBe('generated');
   detail = await (await page.request.get(detailPath)).json();
   const originalUrl = detail.rows[0].certificate.verificationUrl;
-  await page.getByRole('button', { name: '發證活動', exact: true }).click();
+  await page.getByRole('link', { name: '發證活動', exact: true }).click();
   await page.getByLabel('搜尋活動', { exact: true }).fill(name);
-  await page.getByRole('button', { name: `開啟活動：${name}`, exact: true }).click();
+  await page.getByRole('link', { name: `開啟活動：${name}`, exact: true }).click();
   await page.getByText('驗證連結與 QR Code', { exact: true }).click();
   await expect(page.getByRole('img', { name: '證書公開驗證 QR Code' })).toBeVisible();
   const downloaded = page.waitForEvent('download');
