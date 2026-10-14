@@ -1,29 +1,41 @@
 # 介面設計規範
 
-此 repository 起初沒有既有視覺系統。本文件記錄 Phase 1 操作介面的設計決策，隨實作更新；不是行銷首頁 brief。
+2026-10 前端改版後的設計決策，視覺方向取自 sta-tw.org（暖墨色、淡黃與淡綠色塊、襯線標題），並用 taste-skill 的 house rules 檢查。隨實作更新。
 
 ## 工作重心
 
 使用者進來是要選擇正確組織、製作模板、檢查名單、生成證書和確認通知。畫面優先呈現目前工作、狀態、錯誤與下一個明確動作，不展示虛構統計或假成功活動。
 
-左側導覽保留穩定位置，組織切換持續可見。主要內容以清楚標題、操作列、實際資料列表和明確空狀態組成。未實作能力顯示階段說明，不放能點擊卻沒有作用的控制項。
+登入後使用頂部導覽列：品牌、組織切換與角色、主要導覽（證書模板、發證活動、郵件紀錄、稽核紀錄，依權限顯示）、「我的證書」與登出。內容區最寬 1360px；模板編輯器使用全寬工作區。未實作能力顯示階段說明，不放能點擊卻沒有作用的控制項。
+
+## 前端架構
+
+- 路由：React Router data router（`apps/web/src/app/router.tsx`）。公開頁面為 `/`、`/login`、`/activate`、`/reset-password`、`/verify/:publicId`；登入後為 `/me` 與 `/o/:orgId/{templates,templates/:id,batches,batches/new,batches/:id,deliveries,audit}`。舊網址 `/workspace`、`/certificates`、`/my-certificates` 轉址。
+- 伺服器狀態：TanStack Query，一個快取以 API path 為 key（`src/lib/hooks.ts`）。任何寫入動作完成後會讓非 session 的快取失效，避免列表顯示舊資料。
+- 結構：`src/app`（session、外框、路由）、`src/features/<領域>`（auth、landing、templates、batches、records、recipient、verification）、`src/ui`（按鈕與回饋元件）、`src/lib`（API、格式化、型別）、`src/styles`（tokens 與各區樣式）。
+- 模板編輯器離開前若有未儲存變更，以 `useBlocker` 與 `beforeunload` 確認。
 
 ## 基礎樣式
 
-產品名稱為 Certfolio／證書工作室。桌面側欄寬 232px，導覽使用「證書模板」、「發證活動」、「郵件紀錄」、「稽核紀錄」；「我的證書」為收件人獨立入口。
+產品名稱為 certfolio／證書工作室。所有 token 定義在 `apps/web/src/styles/tokens.css` 的 Tailwind v4 `@theme`。
 
 | Token | 值 | 用途 |
 | --- | --- | --- |
-| 背景 | #f7f9f9 | 頁面底色 |
-| 面板 | #ffffff | 表單、列表、屬性 |
-| 主要文字 | #203432 | 標題及內容 |
-| 次要文字 | #667674 | 說明及 metadata |
-| 強調色 | #17685d | 主要操作及選取 |
-| 邊框 | #dce5e2 | 面板與控制分界 |
-| 圓角 | 8px／12px | 控制／面板 |
-| 字級 | 14px／30px | 內文／頁面標題 |
+| ground | #ffffff | 頁面底色 |
+| surface／surface-strong | #f5f4f1／#ebe9e4 | 面板、次要按鈕、停用狀態 |
+| ink | #363535 | 主要文字與主要按鈕 |
+| muted | #6b6968 | 說明與 metadata |
+| issue | #ffe184 | 發證印記、選取、焦點環 |
+| verify／verify-strong | #d9edbf／#badaaf | 驗證印記、成功狀態 |
+| danger | #b4372f | 錯誤與危險動作 |
+| 圓角 | 14px／28px／999px | 欄位／面板／按鈕與標籤 |
+| 字型 | Noto Serif TC 400／Noto Sans TC | 標題／內文（@fontsource 自帶，不連外部 CDN） |
 
-token 變更需同時檢查 `apps/web/src/styles.css` 的實際值及對比，不從單一畫面的偶然間距新增設計規則。
+視覺母題是兩枚重疊的圓形印記（黃色代表發證、綠色代表驗證，multiply 疊色），用在品牌、首頁、登入、驗證結果與空狀態。版面不使用陰影（對話框除外）、漸層、玻璃效果與裝飾分隔線；區塊以色塊、留白與字級區分。
+
+## 公開首頁
+
+首頁 hero 即為真偽查詢：貼上驗證連結或代碼後導向 `/verify/:publicId`，不必登入。其後依序為「一張證書的四個時刻」（同一張證書在模板、名單、PDF、驗證四個色塊中）、功能要點、行內縮圖句、整條可點的登入色帶與頁尾大型印記。首頁圖片全部是本產品實際介面與證書輸出的截圖（`apps/web/public/landing`），不使用圖庫照片。進場動畫在 `prefers-reduced-motion` 下停用。
 
 ## 編輯器
 
@@ -39,7 +51,7 @@ token 變更需同時檢查 `apps/web/src/styles.css` 的實際值及對比，�
 
 ## 文字、可及性與互動
 
-預設繁體中文，功能名稱、日期格式及錯誤語氣一致。後台 UI 使用系統 sans-serif；證書使用固定授權字型，兩者用途分開。一般內容清楚緊湊，標題有層級，長識別碼允許換行。
+預設繁體中文，功能名稱、日期格式及錯誤語氣一致。後台 UI 使用 Noto Sans TC，標題使用 Noto Serif TC；證書使用固定授權字型，用途分開。一般內容清楚緊湊，標題有層級，長識別碼允許換行。
 
 按鈕、欄位、連結有可見焦點。icon-only 控制有 accessible name；表單有 label，錯誤和欄位關聯。鍵盤能完成登入、上傳、欄位輸入及提交。拖曳有數字欄位替代。對話框與錯誤提示不依賴 hover。
 

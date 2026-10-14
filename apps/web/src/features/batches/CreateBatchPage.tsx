@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
+import { useNavigate } from "react-router";
 import {
-  ArrowLeftIcon,
   ArrowRightIcon,
   CheckCircledIcon,
   DownloadIcon,
@@ -9,17 +9,13 @@ import {
   UploadIcon,
 } from "@radix-ui/react-icons";
 import { collectPlaceholders } from "@cert/contracts";
-import { api, orgPath, post } from "../lib/api";
-import { csvBlob, saveBlob } from "../lib/download";
-import { useAction, usePagedResource } from "../lib/hooks";
-import type { Batch, Organization, Template, Validation } from "../lib/types";
-import {
-  Alert,
-  LoadError,
-  PageHeading,
-  Pagination,
-} from "../components/common";
-import { Button } from "../components/ui/button";
+import { api, orgPath, post } from "../../lib/api";
+import { csvBlob, saveBlob } from "../../lib/download";
+import { useAction, usePagedResource } from "../../lib/hooks";
+import type { Batch, Template, Validation } from "../../lib/types";
+import { useWorkspace } from "../../app/AppShell";
+import { BackLink, LoadError, Notice, PageHeader, Pagination } from "../../ui/feedback";
+import { Button } from "../../ui/Button";
 
 type Sheet = {
   name: string;
@@ -32,15 +28,10 @@ const aliases: Record<string, string[]> = {
   recipient_email: ["email", "電子郵件", "信箱"],
   issue_date: ["發證日期", "日期"],
 };
-export function CreateBatch({
-  organization,
-  onClose,
-  onCreated,
-}: {
-  organization: Organization;
-  onClose: () => void;
-  onCreated: (id: string) => void;
-}) {
+export function CreateBatchPage() {
+  const { organization } = useWorkspace();
+  const navigate = useNavigate();
+  const onCreated = (id: string) => navigate(`/o/${organization.id}/batches/${id}`, { replace: true });
   const templates = usePagedResource<Template>(
     orgPath(organization.id, "/templates"),
   );
@@ -186,32 +177,25 @@ export function CreateBatch({
     );
   return (
     <>
-      <Button variant="ghost" className="back-button" onClick={onClose}>
-        <ArrowLeftIcon />
-        返回發證活動
-      </Button>
-      <PageHeading
+      <BackLink to={`/o/${organization.id}/batches`}>返回發證活動</BackLink>
+      <PageHeader
         title="建立發證活動"
-        description={`${organization.name} · 選擇名單來源，核對欄位，再建立活動。`}
+        description={`${organization.name}：選擇模板與名單來源，核對欄位後再建立活動。`}
       />
-      <Alert message={action.error} />
+      <Notice message={action.error} />
       {templates.error && (
         <LoadError
           error={templates.error}
           retry={() => void templates.reload()}
         />
       )}
-      <section className="panel form-panel">
+      <section className="panel form-panel stack">
         <div className="section-title">
-          <span className="step-number">1</span>
-          <div>
-            <h2>活動與模板</h2>
-            <p>選擇已發布版本，名單欄位會隨模板調整。</p>
-          </div>
+          <h2>活動與模板</h2>
+          <p>選擇已發布的模板版本，名單欄位會隨模板調整。</p>
         </div>
-        <label>證書到期日（選填）<input type="date" value={expiresOn} onChange={e => { setExpiresOn(e.target.value); invalidate(); }} /><span className="field-help">效期至當日台北時間 23:59:59；留空代表無到期日。</span></label>
-        <div className="activity-form-grid">
-          <label>
+        <div className="form-grid">
+          <label className="field">
             活動名稱
             <input
               value={eventName}
@@ -225,7 +209,7 @@ export function CreateBatch({
               disabled={action.busy}
             />
           </label>
-          <label>
+          <label className="field">
             模板版本
             <select
               value={templateVersionId}
@@ -244,10 +228,26 @@ export function CreateBatch({
               ))}
             </select>
           </label>
+          <div className="field">
+            <label htmlFor="batch-expires-on">證書到期日（選填）</label>
+            <input
+              id="batch-expires-on"
+              type="date"
+              value={expiresOn}
+              onChange={(e) => {
+                setExpiresOn(e.target.value);
+                invalidate();
+              }}
+              aria-describedby="batch-expires-help"
+              disabled={action.busy}
+            />
+            <span className="field-help" id="batch-expires-help">
+              效期至當日台北時間 23:59:59；留空代表無到期日。
+            </span>
+          </div>
         </div>
         <Pagination
           {...templates.pagination}
-          loading={templates.loading}
           onPageChange={(page) => {
             templates.pagination.onPageChange(page);
             setTemplateVersionId("");
@@ -255,19 +255,16 @@ export function CreateBatch({
           }}
         />
         {!templates.loading && !versions.length && (
-          <Alert
+          <Notice
             kind="info"
             message="本頁沒有已發布的模板。請切換模板頁，或先儲存並發布模板。"
           />
         )}
         <div className="section-title section-title-spaced">
-          <span className="step-number">2</span>
-          <div>
-            <h2>收件人名單</h2>
-            <p>每批最多 100 人。可使用自己的 Excel 欄位名稱。</p>
-          </div>
+          <h2>收件人名單</h2>
+          <p>每批最多 100 人，可以沿用自己的 Excel 欄位名稱。</p>
         </div>
-        <div className="activity-toolbar">
+        <div className="toolbar">
           <div className="segmented" role="group" aria-label="名單輸入方式">
             {(
               [
@@ -297,8 +294,10 @@ export function CreateBatch({
         </div>
         {mode === "file" && (
           <>
-            <label className="file-drop">
-              <UploadIcon />
+            <label className={`file-drop ${action.busy ? "is-disabled" : ""}`}>
+              <span className="file-drop-seal" aria-hidden>
+                <UploadIcon />
+              </span>
               <strong>{filename || "選擇 Excel 或 CSV 名單"}</strong>
               <span>.xlsx（2 MB）／UTF-8 .csv（512 KB）· 第一列為欄位名稱</span>
               <input
@@ -315,8 +314,8 @@ export function CreateBatch({
             </label>
             {sheet && (
               <div className="mapping-panel">
-                <div className="activity-toolbar">
-                  <label>
+                <div className="toolbar">
+                  <label className="field">
                     工作表
                     <select
                       value={sheetIndex}
@@ -339,7 +338,7 @@ export function CreateBatch({
                 </div>
                 <div className="mapping-grid">
                   {fields.map((f) => (
-                    <label key={f.key}>
+                    <label className="field" key={f.key}>
                       {f.label}
                       {f.required ? "（必填）" : "（選填）"}
                       <select
@@ -374,7 +373,7 @@ export function CreateBatch({
           </>
         )}
         {mode === "paste" && (
-          <label>
+          <label className="field">
             或貼上 CSV 內容
             <textarea
               className="csv-input"
@@ -392,8 +391,8 @@ export function CreateBatch({
         )}
         {mode === "manual" && (
           <>
-            <div className="table-scroll">
-              <table className="manual-table">
+            <div className="table-wrap">
+              <table className="data-table manual-table">
                 <thead>
                   <tr>
                     <th>來源列號</th>
@@ -460,7 +459,7 @@ export function CreateBatch({
               </table>
             </div>
             <Button
-              variant="outline"
+              variant="quiet"
               disabled={action.busy || manual.length >= 100}
               onClick={() => {
                 setManual((current) => [
@@ -475,13 +474,13 @@ export function CreateBatch({
             </Button>
           </>
         )}
-        <p className="field-help mt-4">
+        <p className="field-help">
           姓名與 Email 必填，日期請使用 YYYY-MM-DD。Excel
           日期儲存格會自動轉換；公式請先貼上為值。檢查通過前不會建立活動。
         </p>
         <div className="form-footer">
           <Button
-            variant="outline"
+            variant="quiet"
             onClick={validate}
             disabled={
               action.busy ||
@@ -496,8 +495,8 @@ export function CreateBatch({
         </div>
       </section>
       {validation && (
-        <section className="panel validation-panel">
-          <div className="activity-toolbar">
+        <section className="panel validation-panel stack">
+          <div className="toolbar">
             <div>
               <h2>名單檢查結果</h2>
               <p>
@@ -506,8 +505,8 @@ export function CreateBatch({
                 筆需要修正
               </p>
             </div>
-            <div className="button-row">
-              <label className="inline-check">
+            <div className="btn-row">
+              <label className="check">
                 <input
                   type="checkbox"
                   checked={onlyErrors}
@@ -516,7 +515,7 @@ export function CreateBatch({
                 只看錯誤
               </label>
               <Button
-                variant="outline"
+                variant="quiet"
                 onClick={() =>
                   saveBlob(
                     csvBlob([
@@ -541,7 +540,7 @@ export function CreateBatch({
               </Button>
             </div>
           </div>
-          <Alert
+          <Notice
             kind={validation.valid ? "success" : "error"}
             message={
               validation.valid
@@ -549,8 +548,8 @@ export function CreateBatch({
                 : "請修正下列錯誤後重新檢查；目前不會建立活動或忽略錯誤列。"
             }
           />
-          <div className="table-scroll">
-            <table>
+          <div className="table-wrap">
+            <table className="data-table">
               <thead>
                 <tr>
                   <th>原始列號</th>

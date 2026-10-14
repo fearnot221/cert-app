@@ -1,0 +1,12 @@
+@import "tailwindcss";
+@import "@fontsource/noto-serif-tc/400.css";
+@import "@fontsource/noto-sans-tc/400.css";
+@import "@fontsource/noto-sans-tc/500.css";
+@import "@fontsource/noto-sans-tc/700.css";
+@import "./tokens.css";
+@import "./base.css";
+@import "./components.css";
+@import "./shell.css";
+@import "./pages.css";
+@import "./editor.css";
+@import "./landing.css";

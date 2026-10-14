@@ -10,4 +10,5 @@ playwright-report/
 test-results/
 *.log
 .DS_Store
+.taste-skill/inspect/
 *.rdb
