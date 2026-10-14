@@ -125,7 +125,7 @@ export function BatchesPage() {
           </table>
         </div>
       )}
-      <Pagination {...resource.pagination} loading={resource.loading} />
+      <Pagination {...resource.pagination} />
     </>
   );
 }

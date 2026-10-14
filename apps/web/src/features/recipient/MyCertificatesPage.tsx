@@ -33,7 +33,7 @@ export function MyCertificatesPage() {
         title="我的證書"
         description="發給這個帳號的證書都在這裡，可以下載 PDF，也能分享驗證連結。"
         action={
-          <Button variant="quiet" onClick={() => void resource.reload()} disabled={resource.loading}>
+          <Button variant="quiet" onClick={() => void resource.reload()} aria-busy={resource.loading}>
             <ReloadIcon />
             重新整理
           </Button>
@@ -120,7 +120,6 @@ export function MyCertificatesPage() {
       )}
       <Pagination
         {...resource.pagination}
-        loading={resource.loading}
         onPageChange={(page) => {
           resource.pagination.onPageChange(page);
           setOrganization("");

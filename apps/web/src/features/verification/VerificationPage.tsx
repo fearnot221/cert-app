@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 import { VerificationQr } from "@cert/renderer";
 import { useResource } from "../../lib/hooks";
-import { formatDate } from "../../lib/format";
+import { formatDate, formatDay } from "../../lib/format";
 import { Button } from "../../ui/Button";
 import { Loading, Notice, Wordmark } from "../../ui/feedback";
 
@@ -96,6 +96,7 @@ export function VerificationPage() {
   const result = resource.data;
   const state = result ? (states[result.status] ?? states.unavailable!) : null;
   const tone = preview ? "issue" : state?.tone ?? (resource.error ? "void" : "issue");
+  const settled = preview || !!result || !resource.pending;
   return (
     <main className={`verify verify-${tone}`}>
       <header className="verify-bar">
@@ -103,9 +104,16 @@ export function VerificationPage() {
         <span>公開證書驗證</span>
       </header>
       <section className="verify-result" aria-busy={resource.loading}>
-        <div className="verify-seal" aria-hidden>
-          <span />
-        </div>
+        {/* The stamp plays once per verdict; while the first answer loads, the seal only breathes. */}
+        {settled ? (
+          <div key={tone} className="verify-seal" aria-hidden>
+            <span />
+          </div>
+        ) : (
+          <div className="verify-seal" data-pending aria-hidden>
+            <span />
+          </div>
+        )}
         <div className="verify-copy">
           {preview ? (
             <>
@@ -156,7 +164,7 @@ export function VerificationPage() {
             </div>
             <div>
               <dt>發證日期</dt>
-              <dd>{result.issueDate ?? formatDate(result.issuedAt)}</dd>
+              <dd>{result.issueDate ? formatDay(result.issueDate) : formatDate(result.issuedAt)}</dd>
             </div>
             <div>
               <dt>有效期限（台北時間）</dt>
@@ -176,7 +184,7 @@ export function VerificationPage() {
               <br />
               每 30 秒自動更新狀態
             </span>
-            <Button variant="quiet" disabled={resource.loading} onClick={() => void resource.reload()}>
+            <Button variant="quiet" aria-busy={resource.loading} onClick={() => void resource.reload()}>
               重新驗證
             </Button>
           </footer>

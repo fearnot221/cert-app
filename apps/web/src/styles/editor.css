@@ -35,7 +35,8 @@
 }
 .editor-title input:focus-visible {
   border-color: var(--color-ink);
-  outline: none;
+  outline: 2px solid var(--color-ink);
+  outline-offset: 1px;
   background: var(--color-ground);
 }
 .editor-title > div {
@@ -130,8 +131,10 @@
   cursor: pointer;
   transition: background-color 160ms var(--ease-out);
 }
-.upload-control:hover {
-  background: var(--color-issue);
+@media (hover: hover) and (pointer: fine) {
+  .upload-control:hover {
+    background: var(--color-issue);
+  }
 }
 .upload-control input {
   position: absolute;
@@ -141,7 +144,7 @@
   opacity: 0;
   cursor: pointer;
 }
-.upload-control:focus-within {
+.upload-control:has(input:focus-visible) {
   outline: 2px solid var(--color-ink);
   outline-offset: 3px;
 }
@@ -174,7 +177,10 @@
   font-size: 14px;
   color: var(--color-muted);
   cursor: pointer;
-  transition: background-color 140ms var(--ease-out), color 140ms var(--ease-out);
+  transition:
+    background-color 140ms var(--ease-out),
+    color 140ms var(--ease-out),
+    transform 120ms var(--ease-out);
 }
 .layer-item span {
   flex: 1;
@@ -192,9 +198,19 @@
   height: 15px;
   flex: none;
 }
-.layer-item:hover {
-  background: var(--color-surface);
-  color: var(--color-ink);
+@media (hover: hover) and (pointer: fine) {
+  .layer-item:hover {
+    background: var(--color-surface);
+    color: var(--color-ink);
+  }
+}
+.layer-item:active {
+  transform: scale(0.98);
+}
+@media (pointer: coarse) {
+  .zoom-control select {
+    min-height: 44px;
+  }
 }
 .layer-item.selected {
   background: var(--color-issue-soft);

@@ -248,7 +248,6 @@ export function CreateBatchPage() {
         </div>
         <Pagination
           {...templates.pagination}
-          loading={templates.loading}
           onPageChange={(page) => {
             templates.pagination.onPageChange(page);
             setTemplateVersionId("");

@@ -123,6 +123,9 @@ export function LandingPage() {
   const enter = signedIn ? homePath(session) : "/login";
   return (
     <div className="landing" ref={root}>
+      <a className="skip-link" href="#main-content">
+        跳到主要內容
+      </a>
       <header className="landing-bar">
         <Wordmark />
         <nav aria-label="首頁導覽" className="landing-links">
@@ -135,23 +138,22 @@ export function LandingPage() {
         </Link>
       </header>
 
+      <main id="main-content">
       <section className="hero" aria-labelledby="hero-title">
         <div className="hero-seals" aria-hidden>
           <span className="seal seal-issue" />
           <span className="seal seal-verify" />
         </div>
         <div className="hero-copy">
-          <h1 id="hero-title" className="hero-title" data-reveal>
+          <h1 id="hero-title" className="hero-title">
             證書真偽，
             <br />
             一查就知。
           </h1>
-          <p className="hero-lead" data-reveal>
+          <p className="hero-lead">
             組織在這裡設計模板、批次產製 PDF 並寄出通知；每張證書都附上公開驗證連結與 QR Code。
           </p>
-          <div data-reveal>
-            <VerifyForm />
-          </div>
+          <VerifyForm />
         </div>
       </section>
 
@@ -229,6 +231,7 @@ export function LandingPage() {
         </svg>
         <span className="cta-word">{signedIn ? "進入" : "登入"}</span>
       </Link>
+      </main>
 
       <footer className="landing-foot">
         <div className="foot-mark" aria-hidden>

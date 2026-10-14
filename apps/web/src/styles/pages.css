@@ -96,17 +96,54 @@
     background-color 160ms var(--ease-out),
     transform 120ms var(--ease-out);
 }
-.row-link svg {
-  transition: transform 200ms var(--ease-out);
-}
-.row-link:hover {
-  background: var(--color-issue);
-}
-.row-link:hover svg {
-  transform: translateX(3px);
-}
 .row-link:active {
   transform: scale(0.97);
+}
+@media (hover: hover) and (pointer: fine) {
+  .row-link:hover {
+    background: var(--color-issue);
+  }
+}
+@media (pointer: coarse) {
+  .row-link {
+    min-height: 44px;
+  }
+}
+.batch-table .data-table td {
+  vertical-align: middle;
+}
+/* On phones each activity becomes a two-column row so its action stays on screen. */
+@media (max-width: 720px) {
+  .batch-table .data-table {
+    min-width: 0;
+  }
+  .batch-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+  .batch-table tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: 12px;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--color-line);
+  }
+  .batch-table tbody tr:last-child {
+    border-bottom: 0;
+  }
+  .batch-table .data-table td {
+    padding: 2px 0;
+    border: 0;
+  }
+  .batch-table .cell-action {
+    grid-column: 2;
+    grid-row: 1 / span 4;
+    align-self: center;
+    width: auto;
+  }
 }
 .cell-action {
   text-align: right;
@@ -159,10 +196,19 @@
   left: 0;
   transform-origin: 0 0;
   pointer-events: none;
-  background: #fff;
+  background: var(--color-ground);
 }
-.template-tile:hover .template-thumb {
-  transform: translateY(-4px);
+.template-tile:active .template-thumb {
+  transform: scale(0.99);
+  transition-duration: 120ms;
+}
+@media (hover: hover) and (pointer: fine) {
+  .template-tile:hover .template-thumb {
+    transform: translateY(-4px);
+  }
+  .template-tile:hover .template-open {
+    transform: translateX(3px);
+  }
 }
 .template-caption {
   display: flex;
@@ -188,9 +234,7 @@
   font-weight: 500;
   transition: transform 200ms var(--ease-out);
 }
-.template-tile:hover .template-open {
-  transform: translateX(3px);
-}
+
 
 /* ---------- Create batch ---------- */
 .form-panel {
@@ -447,7 +491,7 @@ details > summary {
 .verification-share-qr {
   padding: 8px;
   border-radius: 16px;
-  background: #fff;
+  background: var(--color-ground);
   outline: 1px solid var(--color-line);
 }
 .verification-share-qr svg {
@@ -479,20 +523,28 @@ details > summary {
 }
 .certificate-seal {
   position: relative;
-  width: clamp(56px, 8vw, 96px);
-  aspect-ratio: 1;
-  border-radius: 50%;
-  background: var(--color-issue);
+  width: clamp(76px, 11vw, 130px);
+  aspect-ratio: 1.36;
 }
+.certificate-seal::before,
 .certificate-seal::after {
   content: "";
   position: absolute;
-  inset: 0 0 0 36%;
+  top: 0;
+  height: 100%;
+  aspect-ratio: 1;
   border-radius: 50%;
+}
+.certificate-seal::before {
+  left: 0;
+  background: var(--color-issue);
+}
+.certificate-seal::after {
+  right: 0;
   background: var(--color-verify);
   mix-blend-mode: multiply;
 }
-.certificate-item.is-void .certificate-seal,
+.certificate-item.is-void .certificate-seal::before,
 .certificate-item.is-void .certificate-seal::after {
   background: var(--color-surface-strong);
 }

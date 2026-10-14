@@ -112,13 +112,27 @@
   }
 }
 
+/* Reduced motion keeps colour and opacity feedback but drops travel, scale and spin. */
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 1ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 1ms !important;
-    scroll-behavior: auto !important;
+  html {
+    scroll-behavior: auto;
+  }
+  .btn:active:not(:disabled),
+  .back-link:active,
+  .segmented button:active,
+  .disclosure > summary:active,
+  .layer-item:active,
+  .row-link:active {
+    transform: none;
+  }
+  .btn[aria-busy="true"] svg,
+  .skeleton-line {
+    animation: none;
+  }
+  .dialog[open] {
+    animation-name: fade-in;
+  }
+  .notice {
+    transform: none;
   }
 }

@@ -1,3 +1,9 @@
+/** A calendar day ("2026-10-15" or a timestamp) in the same style as formatDate, without the time. */
+export function formatDay(value?: string | null) {
+  if (!value) return "尚無紀錄";
+  const day = /^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T00:00:00+08:00` : value;
+  return new Intl.DateTimeFormat("zh-TW", { dateStyle: "medium", timeZone: "Asia/Taipei" }).format(new Date(day));
+}
 export function formatDate(value?: string | null) {
   if (!value) return "尚無紀錄";
   return new Intl.DateTimeFormat("zh-TW", {

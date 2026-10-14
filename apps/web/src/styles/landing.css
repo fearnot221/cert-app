@@ -29,8 +29,10 @@
   font-weight: 500;
   transition: background-color 160ms var(--ease-out);
 }
-.landing-links a:hover {
-  background: rgb(255 255 255 / 0.7);
+@media (hover: hover) and (pointer: fine) {
+  .landing-links a:hover {
+    background: var(--color-ground);
+  }
 }
 
 /* Hero: a giant cropped circle from the right, the green seal overprinted on it */
@@ -51,6 +53,9 @@
   transform: translateX(-50%);
   overflow: hidden;
   pointer-events: none;
+}
+.hero-seals .seal {
+  will-change: transform;
 }
 .hero-seals .seal-issue {
   width: 120vh;
@@ -88,7 +93,7 @@
 }
 .hero-title {
   font-size: var(--step-display);
-  line-height: 1.04;
+  line-height: 1.12;
   letter-spacing: -0.03em;
 }
 .hero-lead {
@@ -105,7 +110,6 @@
   border-radius: var(--radius-pill);
   background: var(--color-ground);
   outline: 1px solid var(--color-line-strong);
-  transition: outline-color 160ms var(--ease-out);
 }
 .hero-verify:focus-within {
   outline: 2px solid var(--color-ink);
@@ -129,8 +133,10 @@
 .hero-verify-button svg {
   transition: transform 200ms var(--ease-out);
 }
-.hero-verify-button:hover svg {
-  transform: translateX(3px);
+@media (hover: hover) and (pointer: fine) {
+  .hero-verify-button:hover svg {
+    transform: translateX(3px);
+  }
 }
 .hero-verify-help {
   grid-column: 1 / -1;
@@ -175,14 +181,17 @@
 .moment-card {
   position: relative;
   margin-top: auto;
-  transition: transform 360ms var(--ease-out);
 }
-.moment:hover .moment-card {
-  transform: translateY(-6px) rotate(-1deg);
-}
+/* The lift sits on the inner sheet: the card itself carries the entrance transform. */
 .moment-card .template-thumb {
   border-radius: 10px;
-  background: #fff;
+  background: var(--color-ground);
+  transition: transform 240ms var(--ease-out);
+}
+@media (hover: hover) and (pointer: fine) {
+  .moment:hover .moment-card .template-thumb {
+    transform: translateY(-6px) rotate(-1deg);
+  }
 }
 .moment-tag {
   position: absolute;
@@ -330,12 +339,28 @@
   overflow: hidden;
   background: var(--color-issue);
   color: var(--color-ink);
-  transition: background-color 420ms var(--ease-out), color 420ms var(--ease-out);
+  transition:
+    background-color 240ms ease,
+    color 240ms ease;
 }
-.cta-band:hover,
 .cta-band:focus-visible {
   background: var(--color-ink);
   color: var(--color-issue);
+}
+@media (hover: hover) and (pointer: fine) {
+  .cta-band:hover {
+    background: var(--color-ink);
+    color: var(--color-issue);
+  }
+  .cta-band:hover .cta-arrow {
+    transform: translate(6px, -6px) rotate(45deg);
+  }
+  .foot-mark:hover .foot-seal:nth-child(odd) {
+    transform: translateY(-8px);
+  }
+  .foot-mark:hover .foot-seal:nth-child(even) {
+    transform: translateY(8px);
+  }
 }
 .cta-note {
   align-self: start;
@@ -347,10 +372,7 @@
   align-self: start;
   width: clamp(48px, 6vw, 88px);
   height: auto;
-  transition: transform 420ms var(--ease-out);
-}
-.cta-band:hover .cta-arrow {
-  transform: translate(6px, -6px) rotate(45deg);
+  transition: transform 240ms var(--ease-out);
 }
 .cta-word {
   grid-column: 1 / -1;
@@ -382,7 +404,7 @@
   aspect-ratio: 1;
   border-radius: 50%;
   mix-blend-mode: multiply;
-  transition: transform 520ms var(--ease-out);
+  transition: transform 320ms var(--ease-in-out);
 }
 .foot-seal + .foot-seal {
   margin-left: calc(clamp(110px, 17vw, 240px) * -0.38);
@@ -399,12 +421,6 @@
 .foot-seal-ink {
   background: var(--color-ink);
   mix-blend-mode: normal;
-}
-.foot-mark:hover .foot-seal:nth-child(odd) {
-  transform: translateY(-8px);
-}
-.foot-mark:hover .foot-seal:nth-child(even) {
-  transform: translateY(8px);
 }
 .foot-word {
   margin-left: clamp(16px, 3vw, 40px);
@@ -453,10 +469,10 @@
 /* Entrances: every part rises once, staggered within its section */
 .reveal-ready [data-reveal] {
   opacity: 0;
-  transform: translate3d(0, 28px, 0);
+  transform: translate3d(0, 16px, 0);
   transition:
-    opacity 760ms var(--ease-out) var(--reveal-delay, 0ms),
-    transform 900ms var(--ease-out) var(--reveal-delay, 0ms);
+    opacity 500ms var(--ease-out) var(--reveal-delay, 0ms),
+    transform 600ms var(--ease-out) var(--reveal-delay, 0ms);
 }
 .reveal-ready [data-reveal].is-in {
   opacity: 1;
@@ -548,11 +564,17 @@
   .hero-seals .seal {
     animation: none;
   }
+  /* Entrances keep their fade but lose the travel; the shutter becomes a plain fade. */
   .reveal-ready [data-reveal],
   .reveal-ready .features-figure img {
-    opacity: 1;
     transform: none;
     clip-path: none;
-    transition: none;
+    transition: opacity 300ms var(--ease-out);
+  }
+  .moment-card .template-thumb,
+  .cta-arrow,
+  .foot-seal,
+  .hero-verify-button svg {
+    transform: none !important;
   }
 }

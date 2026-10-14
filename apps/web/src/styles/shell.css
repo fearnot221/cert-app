@@ -13,8 +13,24 @@
   display: block;
   transition: transform 260ms var(--ease-out);
 }
-.wordmark:hover .seal-mark {
-  transform: rotate(-8deg);
+@media (hover: hover) and (pointer: fine) {
+  .wordmark:hover .seal-mark {
+    transform: rotate(-8deg);
+  }
+}
+.skip-link {
+  position: absolute;
+  left: var(--gutter);
+  top: -80px;
+  z-index: 30;
+  padding: 10px 16px;
+  border-radius: var(--radius-pill);
+  background: var(--color-ink);
+  color: var(--color-ground);
+  font-weight: 500;
+}
+.skip-link:focus {
+  top: 8px;
 }
 
 /* ---------- Signed-in shell: a plain bar, then the page ---------- */
@@ -26,7 +42,7 @@
   position: sticky;
   top: 0;
   z-index: 20;
-  background: rgb(255 255 255 / 0.96);
+  background: var(--color-ground);
 }
 .app-bar-row {
   display: flex;
@@ -87,12 +103,26 @@
   white-space: nowrap;
   transition:
     background-color 160ms var(--ease-out),
-    color 160ms var(--ease-out);
+    color 160ms var(--ease-out),
+    transform 120ms var(--ease-out);
 }
-.app-nav a:hover,
-.app-account-link:hover {
-  color: var(--color-ink);
-  background: var(--color-surface);
+.app-nav a:active,
+.app-account-link:active {
+  transform: scale(0.97);
+}
+@media (hover: hover) and (pointer: fine) {
+  .app-nav a:hover,
+  .app-account-link:hover {
+    color: var(--color-ink);
+    background: var(--color-surface);
+  }
+}
+@media (pointer: coarse) {
+  .app-nav a,
+  .app-account-link,
+  .org-switch select {
+    min-height: 44px;
+  }
 }
 .app-nav a.active,
 .app-account-link.active {
@@ -157,6 +187,9 @@
   }
 }
 @media (max-width: 720px) {
+  .app-bar {
+    position: static;
+  }
   .app-account-email,
   .org-role {
     display: none;
@@ -282,7 +315,7 @@
   }
   .auth-field {
     min-height: auto;
-    gap: 120px;
+    gap: 48px;
     padding-bottom: 28px;
   }
   .auth-seals .seal-issue {
@@ -301,7 +334,7 @@
   }
   .auth-panel {
     align-items: start;
-    padding-top: 32px;
+    padding-top: 24px;
   }
 }
 
@@ -316,11 +349,11 @@
 }
 .verify-issue {
   --verify-seal: var(--color-issue);
-  --verify-seal-2: #ffd24d;
+  --verify-seal-2: var(--color-issue-strong);
 }
 .verify-void {
   --verify-seal: var(--color-surface-strong);
-  --verify-seal-2: #d6d2cc;
+  --verify-seal-2: var(--color-void);
 }
 .verify-bar {
   display: flex;
@@ -344,7 +377,11 @@
   aspect-ratio: 1;
   border-radius: 50%;
   background: var(--verify-seal);
-  animation: seal-stamp 700ms var(--ease-out) both;
+  animation: seal-stamp 560ms var(--ease-out) both;
+}
+.verify-seal[data-pending] {
+  opacity: 0.35;
+  animation: pulse 1.4s var(--ease-in-out) infinite;
 }
 .verify-seal span {
   position: absolute;
@@ -364,11 +401,28 @@
   border-bottom: 0.6rem solid var(--color-ink);
   transform: translateY(-50%) rotate(-45deg);
   border-radius: 3px;
+  animation: check-draw 280ms var(--ease-out) 320ms both;
+}
+@keyframes check-draw {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0);
+  }
 }
 @keyframes seal-stamp {
   from {
     opacity: 0;
-    transform: scale(1.18) rotate(-12deg);
+    transform: scale(1.12) rotate(-8deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .verify-seal {
+    animation-name: fade-in;
+  }
+  .verify-valid .verify-seal span::after {
+    animation: none;
   }
 }
 .verify-copy {

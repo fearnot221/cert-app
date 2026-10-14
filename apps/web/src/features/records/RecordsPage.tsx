@@ -22,7 +22,7 @@ export function RecordsPage({ kind }: { kind: "deliveries" | "audit" }) {
             : "查看此組織的敏感操作、執行者與發生時間。紀錄只能新增，不能修改或刪除。"
         }
         action={
-          <Button variant="quiet" disabled={resource.loading} onClick={() => void resource.reload()}>
+          <Button variant="quiet" aria-busy={resource.loading} onClick={() => void resource.reload()}>
             <ReloadIcon />
             重新整理
           </Button>
@@ -112,7 +112,7 @@ export function RecordsPage({ kind }: { kind: "deliveries" | "audit" }) {
           </table>
         </div>
       )}
-      <Pagination {...resource.pagination} loading={resource.loading} />
+      <Pagination {...resource.pagination} />
       <p className="field-help page-foot">時間以台北時區（UTC+8）顯示。</p>
     </>
   );

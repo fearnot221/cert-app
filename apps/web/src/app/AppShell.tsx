@@ -48,6 +48,9 @@ function Shell({ membership, children }: { membership?: Membership; children: Re
   };
   return (
     <div className="app">
+      <a className="skip-link" href="#main-content">
+        跳到主要內容
+      </a>
       <header className="app-bar">
         <div className="app-bar-row">
           <Wordmark to={current ? `/o/${current.organization.id}/templates` : "/me"} />

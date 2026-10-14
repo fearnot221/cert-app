@@ -125,7 +125,7 @@ export function TemplatesPage() {
           ))}
         </ul>
       )}
-      <Pagination {...resource.pagination} loading={resource.loading} />
+      <Pagination {...resource.pagination} />
     </>
   );
 }

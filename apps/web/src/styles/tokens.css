@@ -27,6 +27,15 @@
   --color-verify-ink: #2f5a1f;
   --color-danger: #b4372f;
   --color-danger-soft: #fbe7e4;
+  --color-danger-hover: #9a2d26;
+  --color-danger-ink: #7d221c;
+  --color-ink-disabled: #9a9796;
+  --color-issue-dot: #d9a400;
+  --color-issue-strong: #ffd24d;
+  --color-issue-text: #4d3a00;
+  --color-void: #d6d2cc;
+  --color-neutral-dot: #9b9895;
+  --color-verify-dot: #5f9a4a;
 
   --radius-control: 14px;
   --radius-panel: 28px;

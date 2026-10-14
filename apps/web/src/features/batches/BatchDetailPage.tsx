@@ -136,7 +136,7 @@ export function BatchDetailPage() {
         title={batch.eventName}
         description="逐一檢查收件人的 PDF，確認產製完成後再發送通知。"
         action={
-          <Button variant="quiet" onClick={() => void reload()} disabled={resource.loading}>
+          <Button variant="quiet" onClick={() => void reload()} aria-busy={resource.loading}>
             <ReloadIcon />
             重新整理
           </Button>
@@ -216,10 +216,10 @@ export function BatchDetailPage() {
           </button>
         </div>
         <div className="btn-row">
-          {permissions.includes("recipients.export") && (
+          {permissions.includes("recipients.export") && failedCount + mailFailures > 0 && (
             <Button
               variant="quiet"
-              disabled={action.busy || !(failedCount + mailFailures)}
+              disabled={action.busy}
               onClick={() =>
                 void action.run(() =>
                   downloadFile(orgPath(organization.id, `/batches/${id}/failures.csv`), `${batch.eventName}-失敗報告.csv`),
@@ -248,10 +248,10 @@ export function BatchDetailPage() {
               <h2 id="recipients-heading">收件人與產製結果</h2>
               <p>預覽由伺服器產出，樣張使用示範編號。</p>
             </div>
-            {permissions.includes("certificates.generate") && (
+            {permissions.includes("certificates.generate") && !allGenerated && (
               <Button
                 onClick={generate}
-                disabled={cancelled || action.busy || isProcessing || allGenerated || !rows.length || needsPreview}
+                disabled={cancelled || action.busy || isProcessing || !rows.length || needsPreview}
               >
                 <FileTextIcon />
                 {failedCount > 0 ? "重試失敗項目" : "確認產製 PDF"}
@@ -304,8 +304,9 @@ export function BatchDetailPage() {
                 <tr>
                   {canDownload && (
                     <th>
-                      <input
-                        type="checkbox"
+                      <label className="check-hit">
+                        <input
+                          type="checkbox"
                         aria-label="勾選目前顯示的成功證書"
                         checked={visibleEligible.length > 0 && visibleEligible.every((r) => selection.has(r.certificate!.id))}
                         disabled={!visibleEligible.length}
@@ -320,7 +321,8 @@ export function BatchDetailPage() {
                             return next;
                           });
                         }}
-                      />
+                        />
+                      </label>
                     </th>
                   )}
                   <th>序號</th>
@@ -338,8 +340,9 @@ export function BatchDetailPage() {
                     <tr key={row.id}>
                       {canDownload && (
                         <td>
-                          <input
-                            type="checkbox"
+                          <label className="check-hit">
+                            <input
+                              type="checkbox"
                             aria-label={`勾選 ${row.data.recipient_name} 的證書`}
                             checked={!!row.certificate && selection.has(row.certificate.id)}
                             disabled={!eligibleRows.includes(row)}
@@ -352,7 +355,8 @@ export function BatchDetailPage() {
                                 return next;
                               });
                             }}
-                          />
+                            />
+                          </label>
                         </td>
                       )}
                       <td className="tabular">{rows.indexOf(row) + 1}</td>

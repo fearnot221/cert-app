@@ -1,4 +1,4 @@
-import { useEffect, type RefObject } from "react";
+import { useLayoutEffect, type RefObject } from "react";
 
 /**
  * Section entrances: each part rises into place once as its section enters the viewport,
@@ -6,7 +6,8 @@ import { useEffect, type RefObject } from "react";
  * reduced-motion visitors get the content with no travel.
  */
 export function useReveal(root: RefObject<HTMLElement | null>) {
-  useEffect(() => {
+  // Layout effect: the hidden state must exist before the first paint, or the entrance never plays.
+  useLayoutEffect(() => {
     const element = root.current;
     if (!element || !("IntersectionObserver" in window)) return;
     const sections = [...element.querySelectorAll<HTMLElement>("section, article, footer, .cta-band")];
@@ -14,7 +15,7 @@ export function useReveal(root: RefObject<HTMLElement | null>) {
       const parts = [...section.querySelectorAll<HTMLElement>("[data-reveal]")].filter(
         (part) => part.closest("section, article, footer, .cta-band") === section,
       );
-      parts.forEach((part, index) => part.style.setProperty("--reveal-delay", `${index * 75}ms`));
+      parts.forEach((part, index) => part.style.setProperty("--reveal-delay", `${Math.min(index, 5) * 60}ms`));
     }
     element.classList.add("reveal-ready");
     const observer = new IntersectionObserver(

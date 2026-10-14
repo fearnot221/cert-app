@@ -54,6 +54,8 @@ export function usePagedResource<T>(path: string, pageSize = 50) {
       page,
       pageSize,
       hasNext: (query.data?.items.length ?? 0) > pageSize,
+      // Only a page change waiting on its data locks the buttons; background refreshes do not.
+      loading: query.isPlaceholderData,
       onPageChange: (next: number) => setPosition({ path, page: Math.max(0, next) }),
     },
   };

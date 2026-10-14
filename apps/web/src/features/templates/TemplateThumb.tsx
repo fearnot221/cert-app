@@ -19,6 +19,7 @@ export function TemplateThumb({ widthMm, heightMm, children }: { widthMm: number
     <div className="template-thumb" ref={frame} style={{ aspectRatio: `${widthMm} / ${heightMm}` }}>
       <div
         className="template-miniature"
+        aria-hidden="true"
         style={{ width: `${widthMm}mm`, height: `${heightMm}mm`, transform: `scale(${scale})` }}
       >
         {children}

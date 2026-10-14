@@ -12,7 +12,7 @@ export function AuditDetail({ audit }: { audit: Audit }) {
 }
 export function BatchHistory({ org, id, revision }: { org: string; id: string; revision: number }) {
   const history = usePagedResource<Audit>(orgPath(org, `/batches/${id}/history?revision=${revision}`), 50);
-  return <section className="panel lifecycle-history"><div className="section-title"><h2>操作紀錄</h2><p>保留操作原因、執行者、變更前後資料，以及新舊證書的關聯。</p></div><Notice message={history.error} />{history.data?.items.map(a => <article key={a.id}><AuditDetail audit={a} /></article>)}<Pagination {...history.pagination} loading={history.loading} /></section>;
+  return <section className="panel lifecycle-history"><div className="section-title"><h2>操作紀錄</h2><p>保留操作原因、執行者、變更前後資料，以及新舊證書的關聯。</p></div><Notice message={history.error} />{history.data?.items.map(a => <article key={a.id}><AuditDetail audit={a} /></article>)}<Pagination {...history.pagination} /></section>;
 }
 export function LifecycleActions({ org, batch, row, permissions, reload }: { org: string; batch: Batch; row?: BatchRow; permissions: string[]; reload: () => Promise<void> }) {
   const [mode, setMode] = useState<'edit'|'cancel'|'revoke'|'reissue'|'expiry'|null>(null);
