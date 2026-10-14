@@ -1,0 +1,167 @@
+name: cert-app
+
+x-app-environment: &app-environment
+  NODE_ENV: development
+  HOST: 0.0.0.0
+  PORT: 3001
+  APP_ORIGIN: ${DOCKER_APP_ORIGIN:-http://localhost:8080}
+  DATABASE_URL: postgresql://cert:${POSTGRES_PASSWORD:-cert_local_only}@postgres:5432/cert_app
+  REDIS_URL: redis://redis:6379
+  STORAGE_ROOT: /data/storage
+  SESSION_SECRET: ${SESSION_SECRET:-replace-this-local-secret-with-32-random-characters}
+  MAIL_MODE: mailpit
+  SMTP_HOST: mailpit
+  SMTP_PORT: 1025
+  WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: cert_app
+      POSTGRES_USER: cert
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cert_local_only}
+    ports:
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cert -d cert_app"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [backend]
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    ports:
+      - "127.0.0.1:56379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [backend]
+    restart: unless-stopped
+
+  mailpit:
+    image: axllent/mailpit:v1.31.5
+    ports:
+      - "127.0.0.1:51025:1025"
+      - "127.0.0.1:58025:8025"
+    networks: [backend]
+    restart: unless-stopped
+
+  migrate:
+    build:
+      context: .
+      target: runtime
+    environment: *app-environment
+    command: ["pnpm", "db:migrate"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [backend]
+    restart: "no"
+
+  api:
+    build:
+      context: .
+      target: runtime
+    environment: *app-environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    volumes:
+      - certificate-storage:/data/storage
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    init: true
+    read_only: true
+    tmpfs: [/tmp]
+    shm_size: 256mb
+    mem_limit: 1g
+    cpus: 1.5
+    pids_limit: 256
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [backend]
+    restart: unless-stopped
+
+  seed:
+    profiles: [tooling]
+    build:
+      context: .
+      target: runtime
+    environment:
+      <<: *app-environment
+      SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-admin@example.test}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-}
+    command: ["pnpm", "exec", "tsx", "prisma/seed.ts"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks: [backend]
+    restart: "no"
+
+  worker:
+    build:
+      context: .
+      target: runtime
+    environment: *app-environment
+    command: ["pnpm", "exec", "tsx", "apps/worker/src/index.ts"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    volumes:
+      - certificate-storage:/data/storage
+    init: true
+    read_only: true
+    tmpfs: [/tmp]
+    shm_size: 512mb
+    mem_limit: 2g
+    cpus: 2
+    pids_limit: 256
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    stop_grace_period: 45s
+    networks: [backend]
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      target: web
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:8080/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    networks: [frontend, backend]
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  redis-data:
+  certificate-storage:
+
+networks:
+  frontend:
+  backend:

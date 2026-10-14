@@ -1,0 +1,937 @@
+import type { FastifyInstance, FastifyRequest } from "fastify";
+import { z } from "zod";
+import sharp, { type Metadata } from "sharp";
+import { createHash, randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { Prisma } from "@prisma/client";
+import {
+  db,
+  storage,
+  validateCsv,
+  validateImportRows,
+  encodeCsv, certificateStatus, expiryDateSchema, expiryInstant, verificationUrl, unexpiredWhere,
+} from "@cert/domain";
+import {
+  TemplateDocumentSchema,
+  FONT_SHA256,
+  IANSUI_SHA256,
+  IANSUI_VERSION,
+  FONT_ASSET_VERSION,
+  RENDERER_VERSION,
+  type TemplateDocument,
+} from "@cert/contracts";
+import { DEFAULT_FONT_PATH, IANSUI_FONT_PATH } from "@cert/renderer/server";
+import { authorize, userFor, fail, audit } from "./auth.js";
+import { config } from "@cert/config";
+import { renderVersionPdf } from "../../../packages/domain/src/rendering.js";
+import { parseImportFile } from "../../../packages/domain/src/spreadsheet-import.js";
+import { registerVerificationRoutes } from "./verification.js";
+import { registerLifecycleRoutes } from "./lifecycle.js";
+import { zipSync } from "fflate";
+const json = (value: unknown) => value as Prisma.InputJsonValue;
+const params = (req: FastifyRequest) =>
+  z
+    .object({ org: z.string().uuid(), id: z.string().uuid().optional() })
+    .parse(req.params);
+const paging = (req: FastifyRequest) =>
+  z
+    .object({
+      take: z.coerce.number().int().min(1).max(100).default(50),
+      skip: z.coerce.number().int().min(0).max(100000).default(0),
+    })
+    .parse(req.query);
+const sha = (data: Buffer) => createHash("sha256").update(data).digest("hex");
+async function checkAsset(org: string, document: TemplateDocument) {
+  if (
+    document.backgroundAssetId &&
+    !(await db.asset.findFirst({
+      where: { id: document.backgroundAssetId, organizationId: org },
+    }))
+  )
+    fail(400, "背景素材不屬於目前組織");
+}
+async function getBatch(org: string, id: string, client: Prisma.TransactionClient = db) {
+  const b = await client.issuanceBatch.findFirst({
+    where: { id, organizationId: org },
+    include: {
+      templateVersion: true,
+      organization: true,
+      rows: { orderBy: { rowNumber: "asc" }, include: { certificates: { orderBy: { edition: "desc" } } } },
+    },
+  });
+  if (!b) fail(404, "找不到發證批次");
+  return { ...b, rows: b.rows.map(r => ({ ...r, certificate: r.certificates[0] ?? null })) };
+}
+const batchInput = z
+  .object({
+    templateVersionId: z.uuid(),
+    eventName: z.string().trim().min(1).max(160),
+    expiresOn: expiryDateSchema.optional(),
+    csv: z
+      .string()
+      .min(1)
+      .max(512 * 1024)
+      .optional(),
+    records: z
+      .array(
+        z
+          .object({
+            rowNumber: z.number().int().min(2).max(1000000),
+            data: z
+              .record(
+                z
+                  .string()
+                  .regex(/^[a-z][a-z0-9_]{0,63}$/)
+                  .refine(
+                    (k) =>
+                      !["constructor", "prototype", "__proto__"].includes(k),
+                  ),
+                z.string().max(500),
+              )
+              .refine((d) => Object.keys(d).length <= 32),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(100)
+      .optional(),
+  })
+  .strict();
+async function validateBatch(org: string, body: z.infer<typeof batchInput>) {
+  if (!!body.csv === !!body.records) fail(400, "請提供一種名單來源");
+  const version = await db.templateVersion.findFirst({
+    where: { id: body.templateVersionId, organizationId: org },
+  });
+  if (!version) fail(404, "找不到已發布模板版本");
+  try {
+    return {
+      version,
+      ...(body.records
+        ? validateImportRows(
+            body.records,
+            TemplateDocumentSchema.parse(version.document),
+          )
+        : validateCsv(
+            body.csv!,
+            TemplateDocumentSchema.parse(version.document),
+          )),
+    };
+  } catch (error) {
+    fail(400, error instanceof Error ? error.message : "CSV 格式錯誤");
+  }
+}
+export async function registerRoutes(app: FastifyInstance) {
+  await registerLifecycleRoutes(app);
+  await registerVerificationRoutes(app);
+  let activePreviews = 0;
+  let activeImports = 0;
+  let activeArchives = 0;
+  app.get("/api/health", async (_req, reply) => {
+    try {
+      await db.$queryRaw`SELECT 1`;
+      return { status: "ok" };
+    } catch {
+      return reply.code(503).send({ status: "unhealthy" });
+    }
+  });
+  app.get("/api/fonts/iansui", async (_req, reply) =>
+    reply.type("font/ttf").send(await readFile(IANSUI_FONT_PATH)),
+  );
+  app.get("/api/fonts/noto-sans-tc", async (_req, reply) =>
+    reply.type("font/ttf").send(await readFile(DEFAULT_FONT_PATH)),
+  );
+  app.get("/api/organizations/:org/templates", async (req) => {
+    const { org } = params(req);
+    await authorize(req, org, "templates.read");
+    return {
+      items: await db.template.findMany({
+        where: { organizationId: org },
+        include: {
+          versions: {
+            select: { id: true, number: true, document: true },
+            orderBy: { number: "desc" },
+          },
+        },
+        orderBy: { updatedAt: "desc" },
+        ...paging(req),
+      }),
+    };
+  });
+  app.post("/api/organizations/:org/templates", async (req) => {
+    const { org } = params(req);
+    const { user } = await authorize(req, org, "templates.write");
+    const body = z
+      .object({
+        name: z.string().trim().min(1).max(160),
+        document: TemplateDocumentSchema,
+      })
+      .strict()
+      .parse(req.body);
+    await checkAsset(org, body.document);
+    const t = await db.template.create({
+      data: {
+        organizationId: org,
+        name: body.name,
+        document: json(body.document),
+      },
+      include: { versions: true },
+    });
+    await audit(org, user.id, "template.created", t.id);
+    return t;
+  });
+  app.put("/api/organizations/:org/templates/:id", async (req) => {
+    const { org, id } = params(req);
+    const { user } = await authorize(req, org, "templates.write");
+    const body = z
+      .object({
+        name: z.string().trim().min(1).max(160),
+        document: TemplateDocumentSchema,
+        revision: z.number().int().positive(),
+      })
+      .strict()
+      .parse(req.body);
+    await checkAsset(org, body.document);
+    const result = await db.template.updateMany({
+      where: { id, organizationId: org, revision: body.revision },
+      data: {
+        name: body.name,
+        document: json(body.document),
+        revision: { increment: 1 },
+        status: "draft",
+      },
+    });
+    if (!result.count) fail(409, "模板已由其他編輯者更新，請重新載入後再編輯");
+    await audit(org, user.id, "template.updated", id);
+    return db.template.findFirst({
+      where: { id, organizationId: org },
+      include: {
+        versions: {
+          select: { id: true, number: true },
+          orderBy: { number: "desc" },
+        },
+      },
+    });
+  });
+  app.post("/api/organizations/:org/templates/:id/publish", async (req) => {
+    const { org, id } = params(req);
+    const { user } = await authorize(req, org, "templates.publish");
+    const version = await db.$transaction(async (tx) => {
+      // Serialize publication and optimistic draft edits with a row lock.
+      await tx.$queryRaw`SELECT id FROM "Template" WHERE id=${id!} AND "organizationId"=${org} FOR UPDATE`;
+      const t = await tx.template.findFirst({
+        where: { id, organizationId: org },
+        include: { versions: { orderBy: { number: "desc" }, take: 1 } },
+      });
+      if (!t) fail(404, "找不到模板");
+      if (t.status === "published" && t.versions[0]) return t.versions[0];
+      const document = TemplateDocumentSchema.parse(t.document);
+      await checkAsset(org, document);
+      const asset = document.backgroundAssetId
+        ? await tx.asset.findFirst({
+            where: { id: document.backgroundAssetId, organizationId: org },
+          })
+        : null;
+      const v = await tx.templateVersion.create({
+        data: {
+          organizationId: org,
+          templateId: t.id,
+          number: (t.versions[0]?.number ?? 0) + 1,
+          document: json(document),
+          rendererVersion: RENDERER_VERSION,
+          assetManifest: {
+            font: { version: FONT_ASSET_VERSION, sha256: FONT_SHA256 },
+            ...(document.elements.some((e) => e.fontFamily === "Iansui")
+              ? { iansui: { version: IANSUI_VERSION, sha256: IANSUI_SHA256 } }
+              : {}),
+            background: asset ? { id: asset.id, sha256: asset.sha256 } : null,
+          },
+        },
+      });
+      await tx.template.update({
+        where: { id: t.id },
+        data: { status: "published" },
+      });
+      await tx.auditLog.create({
+        data: {
+          organizationId: org,
+          actorId: user.id,
+          action: "template.published",
+          resourceId: v.id,
+        },
+      });
+      return v;
+    });
+    return version;
+  });
+  app.post("/api/organizations/:org/assets", async (req) => {
+    const { org } = params(req);
+    const { user } = await authorize(req, org, "templates.write");
+    const file = await req.file();
+    if (!file) fail(400, "請選擇圖片");
+    const bytes = await file.toBuffer();
+    let metadata: Metadata;
+    try {
+      metadata = await sharp(bytes, { limitInputPixels: 40000000 }).metadata();
+    } catch {
+      fail(400, "圖片內容無效或超過 4,000 萬像素");
+    }
+    if (
+      !["png", "jpeg", "webp"].includes(metadata.format || "") ||
+      (metadata.pages && metadata.pages > 1)
+    )
+      fail(400, "只接受靜態 PNG、JPG 或 WebP");
+    // Decode and re-encode to remove metadata and trailing untrusted content.
+    const safe = await sharp(bytes, { limitInputPixels: 40000000 })
+      .rotate()
+      .png()
+      .toBuffer({ resolveWithObject: true });
+    const id = randomUUID();
+    const storageKey = `${org}/assets/${id}.png`;
+    await storage.put(storageKey, safe.data);
+    const asset = await db.asset.create({
+      data: {
+        id,
+        organizationId: org,
+        filename: "background.png",
+        mimeType: "image/png",
+        storageKey,
+        sha256: sha(safe.data),
+        width: safe.info.width,
+        height: safe.info.height,
+        size: safe.data.length,
+      },
+    });
+    await audit(org, user.id, "asset.uploaded", id);
+    return {
+      id,
+      mimeType: asset.mimeType,
+      width: asset.width,
+      height: asset.height,
+    };
+  });
+  app.get("/api/organizations/:org/assets/:id/file", async (req, reply) => {
+    const { org, id } = params(req);
+    await authorize(req, org, "templates.read");
+    const a = await db.asset.findFirst({ where: { id, organizationId: org } });
+    if (!a) fail(404, "找不到素材");
+    return reply.type(a.mimeType).send(await storage.get(a.storageKey));
+  });
+  app.post("/api/organizations/:org/imports/parse", async (req, reply) => {
+    const { org } = params(req);
+    await authorize(req, org, "recipients.import");
+    if (activeImports >= 1) fail(429, "另一份名單正在讀取，請稍後再試");
+    activeImports++;
+    try {
+      const file = await req.file({
+        limits: { fileSize: 2 * 1024 * 1024, files: 1 },
+      });
+      if (!file) fail(400, "請選擇名單檔案");
+      const bytes = await file.toBuffer();
+      const sheets = await parseImportFile(bytes, file.filename);
+      return reply.header("Cache-Control", "no-store").send({ sheets });
+    } catch (error) {
+      fail(400, error instanceof Error ? error.message : "無法讀取名單");
+    } finally {
+      activeImports--;
+    }
+  });
+  app.post("/api/organizations/:org/batches/validate", async (req) => {
+    const { org } = params(req);
+    await authorize(req, org, "recipients.import");
+    const body = batchInput.parse(req.body);
+    const { rows, valid } = await validateBatch(org, body);
+    return { rows, valid };
+  });
+  app.post("/api/organizations/:org/batches", async (req) => {
+    const { org } = params(req);
+    const { user } = await authorize(req, org, "recipients.import");
+    const body = batchInput
+      .extend({ idempotencyKey: z.uuid() })
+      .parse(req.body);
+    const existing = await db.issuanceBatch.findUnique({
+      where: {
+        organizationId_idempotencyKey: {
+          organizationId: org,
+          idempotencyKey: body.idempotencyKey,
+        },
+      },
+    });
+    if (existing) return existing;
+    const { rows, valid } = await validateBatch(
+      org,
+      batchInput.parse({
+        templateVersionId: body.templateVersionId,
+        eventName: body.eventName,
+        csv: body.csv,
+        records: body.records,
+      }),
+    );
+    if (!valid) fail(400, "請先修正所有錯誤列；本階段不會靜默略過");
+    return db.$transaction(async tx => {
+    const batch = await tx.issuanceBatch.create({
+      data: {
+        organizationId: org,
+        templateVersionId: body.templateVersionId,
+        eventName: body.eventName,
+        expiresAt: expiryInstant(body.expiresOn),
+        idempotencyKey: body.idempotencyKey,
+        rows: {
+          create: rows.map((r) => ({
+            rowNumber: r.rowNumber,
+            data: json(r.data),
+          })),
+        },
+      },
+    });
+    await tx.auditLog.create({ data: { organizationId: org, actorId: user.id, action: "batch.created", resourceId: batch.id, metadata: { actorEmail: user.email, eventName: batch.eventName, rowCount: rows.length } } });
+    return batch;
+    });
+  });
+  app.get("/api/organizations/:org/batches", async (req) => {
+    const { org } = params(req);
+    await authorize(req, org, "certificates.generate");
+    return {
+      items: await db.issuanceBatch.findMany({
+        where: {
+          organizationId: org,
+          ...(() => {
+            const q = z
+              .object({
+                search: z.string().max(160).optional(),
+                status: z
+                  .enum(["validated", "generating", "generated", "failed", "cancelled"])
+                  .optional(),
+              })
+              .parse(req.query);
+            return {
+              ...(q.search
+                ? {
+                    eventName: {
+                      contains: q.search,
+                      mode: "insensitive" as const,
+                    },
+                  }
+                : {}),
+              ...(q.status ? { status: q.status } : {}),
+            };
+          })(),
+        },
+        orderBy: { createdAt: "desc" },
+        ...paging(req),
+        include: { _count: { select: { rows: true } } },
+      }),
+    };
+  });
+  app.get("/api/organizations/:org/batches/:id", async (req) => {
+    const { org, id } = params(req);
+    await authorize(req, org, "certificates.generate");
+    const b = await getBatch(org, id!);
+    const deliveries = await db.emailDelivery.findMany({
+      where: { organizationId: org, certificate: { batchId: id } },
+      select: {
+        id: true,
+        status: true,
+        error: true,
+        certificateId: true,
+        messageId: true,
+      },
+    });
+    return {
+      id: b.id,
+      expiresAt: b.expiresAt,
+      revision: b.revision,
+      cancelReason: b.cancelReason,
+      cancelledAt: b.cancelledAt,
+      eventName: b.eventName,
+      status: b.status,
+      previewedAt: b.previewedAt,
+      templateVersionId: b.templateVersionId,
+      createdAt: b.createdAt,
+      rows: b.rows.map((r) => ({
+        id: r.id,
+        rowNumber: r.rowNumber,
+        data: r.data,
+        status: r.status,
+        error: r.error,
+        history: r.certificates.map(c => ({ id: c.id, number: c.number, status: c.status, edition: c.edition, previousCertificateId: c.previousCertificateId, issuedAt: c.issuedAt })),
+        certificate: r.certificate
+          ? {
+              id: r.certificate.id,
+              number: r.certificate.number,
+              status: certificateStatus(r.certificate),
+              storedStatus: r.certificate.status,
+              expiresAt: r.certificate.expiresAt,
+              revision: r.certificate.revision,
+              verificationUrl: verificationUrl(r.certificate.publicId),
+              edition: r.certificate.edition,
+            }
+          : null,
+      })),
+      deliveries,
+    };
+  });
+  app.post("/api/organizations/:org/batches/:id/zip", async (req, reply) => {
+    const { org, id } = params(req);
+    const { user } = await authorize(req, org, "certificates.download");
+    const { certificateIds } = z
+      .object({ certificateIds: z.array(z.uuid()).min(1).max(100).optional() })
+      .strict()
+      .parse(req.body ?? {});
+    const batch = await getBatch(org, id!);
+    const eligible = batch.rows.flatMap((row) =>
+      row.certificate?.generationStatus === "success" &&
+      certificateStatus(row.certificate) === "valid" &&
+      row.certificate.pdfKey
+        ? [{ row, certificate: row.certificate }]
+        : [],
+    );
+    const selected = certificateIds
+      ? eligible.filter((item) => certificateIds.includes(item.certificate.id))
+      : eligible;
+    if (certificateIds && new Set(certificateIds).size !== selected.length)
+      fail(400, "選取項目包含未完成、已撤銷或不屬於此活動的證書");
+    if (!selected.length) fail(400, "此活動尚無可下載的成功證書");
+    if (activeArchives >= 1) fail(429, "正在準備另一份 ZIP，請稍後再試");
+    activeArchives++;
+    try {
+      const files: Record<string, Uint8Array> = Object.create(null);
+      let size = 0;
+      for (const { row, certificate } of selected) {
+        const bytes = await storage.get(
+          certificate.pdfKey!,
+          50 * 1024 * 1024 - size,
+        );
+        size += bytes.length;
+        if (size > 50 * 1024 * 1024)
+          fail(413, "本次 ZIP 超過 50 MB，請減少勾選數量後下載");
+        if (sha(bytes) !== certificate.pdfSha256)
+          fail(409, "證書檔案完整性檢查失敗，請聯絡管理員");
+        const name = String(
+          (row.data as Record<string, string>).recipient_name ?? "recipient",
+        )
+          .normalize("NFKC")
+          .replace(/[\\/<>:"|?*\u0000-\u001f.]/g, "_")
+          .slice(0, 60);
+        files[`${row.rowNumber}-${name}-${certificate.id}.pdf`] = bytes;
+      }
+      // Store already compressed PDFs; no duplicate rendering, and no filesystem extraction paths.
+      const zip = Buffer.from(zipSync(files, { level: 0 }));
+      await audit(org, user.id, "batch.zip_downloaded", id);
+      return reply
+        .type("application/zip")
+        .header("Cache-Control", "no-store")
+        .header(
+          "Content-Disposition",
+          `attachment; filename="certificates-${id}.zip"`,
+        )
+        .send(zip);
+    } finally {
+      activeArchives--;
+    }
+  });
+  app.get(
+    "/api/organizations/:org/batches/:id/failures.csv",
+    async (req, reply) => {
+      const { org, id } = params(req);
+      const { user } = await authorize(req, org, "recipients.export");
+      const batch = await getBatch(org, id!);
+      const deliveries = await db.emailDelivery.findMany({
+        where: {
+          organizationId: org,
+          certificate: { batchId: id },
+          status: { in: ["failed", "unknown"] },
+        },
+      });
+      const report: (string | number)[][] = [
+        ["原始列號", "姓名", "Email", "階段", "狀態", "錯誤原因", "證書編號"],
+      ];
+      for (const row of batch.rows) {
+        const data = row.data as Record<string, string>;
+        const append = (stage: string, status: string, error: string, certificate = row.certificate) =>
+          report.push([
+            row.rowNumber,
+            (certificate?.dataSnapshot as Record<string,string> | undefined)?.recipient_name ?? data.recipient_name ?? "",
+            (certificate?.dataSnapshot as Record<string,string> | undefined)?.recipient_email ?? data.recipient_email ?? "",
+            stage,
+            status,
+            error,
+            certificate?.number ?? "",
+          ]);
+        if (row.status === "failed")
+          append("PDF 產製", row.status, row.error ?? "產製失敗");
+        for (const delivery of deliveries.filter(
+          (d) => row.certificates.some(c => c.id === d.certificateId),
+        ))
+          append(
+            "通知",
+            delivery.status,
+            delivery.error ?? "請查閱郵件紀錄確認寄送狀態",
+            row.certificates.find(c => c.id === delivery.certificateId),
+          );
+      }
+      await audit(org, user.id, "batch.failure_report_downloaded", id);
+      return reply
+        .type("text/csv; charset=utf-8")
+        .header("Cache-Control", "no-store")
+        .header(
+          "Content-Disposition",
+          `attachment; filename="failures-${id}.csv"`,
+        )
+        .send(encodeCsv(report));
+    },
+  );
+  app.post(
+    "/api/organizations/:org/batches/:id/preview",
+    async (req, reply) => {
+      const { org, id } = params(req);
+      await authorize(req, org, "certificates.generate");
+      const { rowId } = z.object({ rowId: z.uuid() }).parse(req.body);
+      const b = await getBatch(org, id!);
+      if (b.status === "cancelled") fail(409, "活動已取消");
+      const row = b.rows.find((r) => r.id === rowId);
+      if (!row) fail(404, "找不到該批次收件人");
+      const data = {
+        ...(row.data as Record<string, string>),
+        organization_name: b.organization.name,
+        event_name: b.eventName,
+        issue_date:
+          (row.data as Record<string, string>).issue_date ||
+          new Intl.DateTimeFormat("sv-SE", {
+            timeZone: "Asia/Taipei",
+          }).format(new Date()),
+        certificate_number: "PREVIEW",
+        verification_url: `${new URL(config.APP_ORIGIN).origin}/verify/preview`,
+      };
+      if (activePreviews >= 2) fail(429, "PDF 預覽忙碌，請稍後重試");
+      activePreviews++;
+      try {
+        const pdf = await renderVersionPdf(b.templateVersion, org, data);
+        const updated = await db.issuanceBatch.updateMany({
+          where: { id: b.id, revision: b.revision, status: { not: "cancelled" } },
+          data: { previewedAt: new Date() },
+        });
+        if (!updated.count) fail(409, "活動已變更，請重新預覽");
+        return reply.type("application/pdf").send(pdf);
+      } catch (error) {
+        fail(422, error instanceof Error ? error.message : "PDF 預覽失敗");
+      } finally {
+        activePreviews--;
+      }
+    },
+  );
+  app.post("/api/organizations/:org/batches/:id/generate", async (req) => {
+    const { org, id } = params(req);
+    const { user } = await authorize(req, org, "certificates.generate");
+    await db.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "IssuanceBatch" WHERE id=${id!} AND "organizationId"=${org} FOR UPDATE`;
+      const b = await getBatch(org, id!, tx);
+      if (b.status === "cancelled") fail(409, "活動已取消");
+      if (!b.previewedAt) fail(409, "請先預覽伺服器產出的 PDF 樣張");
+      for (const row of b.rows) {
+        const data = row.data as Record<string, string>;
+        const account = await tx.user.upsert({
+          where: { email: data.recipient_email! },
+          create: { email: data.recipient_email! },
+          update: {},
+        });
+        const recipient = await tx.recipient.upsert({
+          where: {
+            organizationId_email: {
+              organizationId: org,
+              email: data.recipient_email!,
+            },
+          },
+          create: {
+            organizationId: org,
+            userId: account.id,
+            email: account.email,
+            name: data.recipient_name!,
+          },
+          update: {},
+        });
+        const certId = randomUUID();
+        const publicId = randomUUID();
+        const number = `CERT-${certId.toUpperCase()}`;
+        const cert = await tx.certificate.upsert({
+          where: { rowId_edition: { rowId: row.id, edition: 1 } },
+          create: {
+            id: certId,
+            publicId,
+            expiresAt: b.expiresAt,
+            organizationId: org,
+            batchId: b.id,
+            rowId: row.id,
+            recipientId: recipient.id,
+            templateVersionId: b.templateVersionId,
+            number,
+            dataSnapshot: {
+              ...data,
+              organization_name: b.organization.name,
+              event_name: b.eventName,
+              issue_date:
+                data.issue_date ||
+                new Intl.DateTimeFormat("sv-SE", {
+                  timeZone: "Asia/Taipei",
+                }).format(new Date()),
+              certificate_number: number,
+              verification_url: verificationUrl(publicId),
+            },
+          },
+          update: {},
+        });
+        if (cert.generationStatus === "pending" && cert.status === "valid")
+          await tx.outboxEvent.upsert({
+            where: { dedupeKey: `pdf-${cert.id}` },
+            create: {
+              organizationId: org,
+              kind: "pdf",
+              entityId: cert.id,
+              dedupeKey: `pdf-${cert.id}`,
+            },
+            update: {},
+          });
+      }
+      const current = await tx.issuanceBatch.findUniqueOrThrow({
+        where: { id: b.id },
+      });
+      if (current.status === "validated")
+        await tx.issuanceBatch.update({
+          where: { id: b.id },
+          data: { status: "generating" },
+        });
+      await tx.auditLog.create({
+        data: {
+          organizationId: org,
+          actorId: user.id,
+          action: "batch.generate_requested",
+          resourceId: b.id,
+        },
+      });
+    });
+    return { ok: true };
+  });
+  app.post("/api/organizations/:org/batches/:id/retry", async (req) => {
+    const { org, id } = params(req);
+    const { user } = await authorize(req, org, "certificates.generate");
+    await getBatch(org, id!);
+    await db.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "IssuanceBatch" WHERE id=${id!} AND "organizationId"=${org} FOR UPDATE`;
+      const currentBatch = await getBatch(org, id!, tx);
+      if (currentBatch.status === "cancelled") fail(409, "活動已取消");
+      const failed = await tx.certificate.findMany({
+        where: { organizationId: org, batchId: id, generationStatus: "failed", status: "valid" },
+      });
+      for (const c of failed) {
+        await tx.certificate.update({
+          where: { id: c.id },
+          data: { generationStatus: "pending" },
+        });
+        await tx.batchRow.update({
+          where: { id: c.rowId },
+          data: { status: "pending", error: null },
+        });
+        await tx.outboxEvent.create({
+          data: {
+            organizationId: org,
+            kind: "pdf",
+            entityId: c.id,
+            dedupeKey: `retry-${c.id}-${randomUUID()}`,
+          },
+        });
+      }
+      if (failed.length)
+        await tx.issuanceBatch.update({
+          where: { id },
+          data: { status: "generating" },
+        });
+      await tx.auditLog.create({ data: { organizationId: org, actorId: user.id, action: "batch.retry_failed", resourceId: id, metadata: { actorEmail: user.email, certificateIds: failed.map(c => c.id) } } });
+    });
+    return { ok: true };
+  });
+  app.get("/api/organizations/:org/senders", async (req) => {
+    const { org } = params(req);
+    await authorize(req, org, "mail.send");
+    return {
+      items: await db.senderIdentity.findMany({
+        where: {
+          organizationId: org,
+          active: true,
+          grant: { active: true, connection: { active: true } },
+        },
+        select: {
+          id: true,
+          displayName: true,
+          fromAddress: true,
+          status: true,
+        },
+      }),
+    };
+  });
+  app.post("/api/organizations/:org/batches/:id/send", async (req) => {
+    const { org, id } = params(req);
+    const { user } = await authorize(req, org, "mail.send");
+    await authorize(req, org, "certificates.issue");
+    if (config.MAIL_MODE !== "mailpit") fail(409, "寄信尚未啟用");
+    const body = z
+      .object({ senderIdentityId: z.uuid() })
+      .strict()
+      .parse(req.body);
+    const sender = await db.senderIdentity.findFirst({
+      where: {
+        id: body.senderIdentityId,
+        organizationId: org,
+        active: true,
+        status: "development",
+        grant: {
+          active: true,
+          connection: { active: true, provider: "mailpit" },
+        },
+      },
+    });
+    if (!sender) fail(403, "寄件身分未授權或已停用");
+    await db.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "IssuanceBatch" WHERE id=${id!} AND "organizationId"=${org} FOR UPDATE`;
+      const b = await getBatch(org, id!, tx);
+      if (b.status === "cancelled") fail(409, "活動已取消");
+      const eligible = b.rows.filter(r => r.certificate?.status === "valid" && (!r.certificate.expiresAt || r.certificate.expiresAt > new Date()));
+      if (eligible.some(r => r.status !== "success")) fail(409, "有效證書產製成功後才能發送");
+      if (!eligible.length) fail(409, "沒有可寄送的有效證書");
+      for (const row of eligible) {
+        const c = row.certificate!;
+        const data = c.dataSnapshot as Record<string, string>;
+        const deliveryId = randomUUID();
+        const delivery = await tx.emailDelivery.upsert({
+          where: {
+            certificateId_senderIdentityId: {
+              certificateId: c.id,
+              senderIdentityId: sender.id,
+            },
+          },
+          create: {
+            id: deliveryId,
+            organizationId: org,
+            certificateId: c.id,
+            senderIdentityId: sender.id,
+            toAddress: data.recipient_email!,
+            messageId: `<${deliveryId}@cert.local>`,
+          },
+          update: {},
+        });
+        if (delivery.status === "queued")
+          await tx.outboxEvent.upsert({
+            where: { dedupeKey: `mail-${delivery.id}` },
+            create: {
+              organizationId: org,
+              kind: "mail",
+              entityId: delivery.id,
+              dedupeKey: `mail-${delivery.id}`,
+            },
+            update: {},
+          });
+      }
+      await tx.auditLog.create({
+        data: {
+          organizationId: org,
+          actorId: user.id,
+          action: "batch.mail_requested",
+          resourceId: b.id,
+          metadata: { actorEmail: user.email, senderIdentityId: sender.id, count: eligible.length, certificateIds: eligible.map(r => r.certificate!.id) },
+        },
+      });
+    });
+    return { ok: true };
+  });
+  app.get("/api/organizations/:org/deliveries", async (req) => {
+    const { org } = params(req);
+    await authorize(req, org, "mail.send");
+    return {
+      items: await db.emailDelivery.findMany({
+        where: { organizationId: org },
+        orderBy: { createdAt: "desc" },
+        ...paging(req),
+        include: {
+          senderIdentity: { select: { displayName: true, fromAddress: true } },
+          attempts: {
+            select: {
+              status: true,
+              errorClass: true,
+              smtpCode: true,
+              startedAt: true,
+              endedAt: true,
+            },
+          },
+        },
+      }),
+    };
+  });
+  app.get("/api/organizations/:org/audit", async (req) => {
+    const { org } = params(req);
+    await authorize(req, org, "audit.read");
+    return {
+      items: await db.auditLog.findMany({
+        where: { organizationId: org },
+        orderBy: { createdAt: "desc" },
+        ...paging(req),
+      }),
+    };
+  });
+  app.get(
+    "/api/organizations/:org/certificates/:id/pdf",
+    async (req, reply) => {
+      const { org, id } = params(req);
+      const { user } = await authorize(req, org, "certificates.download");
+      const c = await db.certificate.findFirst({
+        where: { id, organizationId: org, generationStatus: "success", status: "valid", ...unexpiredWhere() },
+      });
+      if (!c?.pdfKey) fail(404, "找不到證書");
+      await audit(org, user.id, "certificate.downloaded", id);
+      return reply
+        .type("application/pdf")
+        .header("Content-Disposition", `attachment; filename="${c.number}.pdf"`)
+        .send(await storage.get(c.pdfKey));
+    },
+  );
+  app.get("/api/me/certificates", async (req) => {
+    const user = await userFor(req);
+    return {
+      items: (await db.certificate.findMany({
+        where: {
+          recipient: { userId: user.id },
+          organization: { active: true },
+          generationStatus: "success",
+        },
+        select: {
+          id: true,
+          number: true,
+          status: true,
+          issuedAt: true,
+          expiresAt: true, publicId: true, generationStatus: true,
+          organization: { select: { name: true } },
+          batch: { select: { eventName: true } },
+        },
+        orderBy: { issuedAt: "desc" },
+        ...paging(req),
+      })).map(c => ({ ...c, status: certificateStatus(c), verificationUrl: verificationUrl(c.publicId) })),
+    };
+  });
+  app.get("/api/me/certificates/:id/pdf", async (req, reply) => {
+    const user = await userFor(req);
+    const { id } = z.object({ id: z.uuid() }).parse(req.params);
+    const c = await db.certificate.findFirst({
+      where: {
+        id,
+        status: "valid",
+        ...unexpiredWhere(),
+        recipient: { userId: user.id },
+        organization: { active: true },
+        generationStatus: "success",
+      },
+    });
+    if (!c?.pdfKey) fail(404, "找不到證書");
+    await audit(c.organizationId, user.id, "recipient.downloaded", id);
+    return reply
+      .type("application/pdf")
+      .header("Content-Disposition", `attachment; filename="${c.number}.pdf"`)
+      .send(await storage.get(c.pdfKey));
+  });
+}

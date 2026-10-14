@@ -1,0 +1,30 @@
+export const permissions = [
+  "members.manage",
+  "roles.manage",
+  "templates.read",
+  "templates.write",
+  "templates.publish",
+  "recipients.import",
+  "recipients.export",
+  "certificates.generate",
+  "certificates.issue",
+  "certificates.revoke",
+  "certificates.download",
+  "mail.send",
+  "mail.settings.manage",
+  "audit.read",
+] as const;
+export const rolePermissions: Record<string, string[]> = {
+  Owner: [...permissions],
+  Admin: [...permissions],
+  Designer: ["templates.read", "templates.write", "templates.publish"],
+  Issuer: [
+    "templates.read",
+    "recipients.import",
+    "certificates.generate",
+    "certificates.issue",
+    "certificates.download",
+    "mail.send",
+  ],
+  Auditor: ["templates.read", "audit.read"],
+};

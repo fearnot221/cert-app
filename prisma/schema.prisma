@@ -1,0 +1,301 @@
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "postgresql"
+}
+model User {
+  id String @id @default(uuid())
+  email String @unique
+  passwordHash String?
+  activatedAt DateTime?
+  disabled Boolean @default(false)
+  createdAt DateTime @default(now())
+  sessions Session[]
+  memberships Membership[]
+  recipients Recipient[]
+  invitations Invitation[]
+  accountMails AccountMail[]
+}
+model Session {
+  tokenHash String @id
+  userId String
+  user User @relation(fields:[userId],references:[id],onDelete:Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  @@index([userId])
+}
+model Organization {
+  id String @id @default(uuid())
+  name String
+  active Boolean @default(true)
+  createdAt DateTime @default(now())
+  roles Role[]
+  memberships Membership[]
+  recipients Recipient[]
+  assets Asset[]
+  templates Template[]
+  versions TemplateVersion[]
+  batches IssuanceBatch[]
+  rows BatchRow[]
+  certificates Certificate[]
+  senders SenderIdentity[]
+  grants ConnectionGrant[]
+  deliveries EmailDelivery[]
+  attempts DeliveryAttempt[]
+  outbox OutboxEvent[]
+  audits AuditLog[]
+}
+model Role {
+  id String @id @default(uuid())
+  organizationId String
+  organization Organization @relation(fields:[organizationId],references:[id])
+  name String
+  permissions String[]
+  isOwner Boolean @default(false)
+  memberships Membership[]
+  @@unique([id,organizationId])
+  @@unique([organizationId,name])
+}
+model Membership {
+  id String @id @default(uuid())
+  organizationId String
+  userId String
+  roleId String
+  active Boolean @default(true)
+  organization Organization @relation(fields:[organizationId],references:[id])
+  user User @relation(fields:[userId],references:[id])
+  role Role @relation(fields:[roleId,organizationId],references:[id,organizationId])
+  @@unique([organizationId,userId])
+}
+model Recipient {
+  id String @id @default(uuid())
+  organizationId String
+  organization Organization @relation(fields:[organizationId],references:[id])
+  userId String
+  user User @relation(fields:[userId],references:[id])
+  email String
+  name String
+  certificates Certificate[]
+  @@unique([id,organizationId])
+  @@unique([organizationId,email])
+  @@index([userId])
+}
+model Asset {
+  id String @id @default(uuid())
+  organizationId String
+  organization Organization @relation(fields:[organizationId],references:[id])
+  filename String
+  mimeType String
+  storageKey String
+  sha256 String
+  width Int
+  height Int
+  size Int
+  createdAt DateTime @default(now())
+  @@unique([id,organizationId])
+  @@index([organizationId,createdAt])
+}
+model Template {
+  id String @id @default(uuid())
+  organizationId String
+  organization Organization @relation(fields:[organizationId],references:[id])
+  name String
+  document Json
+  revision Int @default(1)
+  status String @default("draft")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  versions TemplateVersion[]
+  @@unique([id,organizationId])
+  @@index([organizationId,createdAt])
+}
+model TemplateVersion {
+  id String @id @default(uuid())
+  organizationId String
+  organization Organization @relation(fields:[organizationId],references:[id])
+  templateId String
+  template Template @relation(fields:[templateId,organizationId],references:[id,organizationId])
+  number Int
+  document Json
+  assetManifest Json
+  rendererVersion String
+  createdAt DateTime @default(now())
+  batches IssuanceBatch[]
+  certificates Certificate[]
+  @@unique([id,organizationId])
+  @@unique([templateId,number])
+}
+model IssuanceBatch {
+  id String @id @default(uuid())
+  organizationId String
+  organization Organization @relation(fields:[organizationId],references:[id])
+  templateVersionId String
+  templateVersion TemplateVersion @relation(fields:[templateVersionId,organizationId],references:[id,organizationId])
+  eventName String
+  idempotencyKey String
+  status String @default("validated")
+  revision Int @default(1)
+  cancelledAt DateTime?
+  cancelReason String?
+  expiresAt DateTime?
+  previewedAt DateTime?
+  createdAt DateTime @default(now())
+  rows BatchRow[]
+  certificates Certificate[]
+  @@unique([id,organizationId])
+  @@unique([organizationId,idempotencyKey])
+  @@index([organizationId,createdAt])
+}
+model BatchRow {
+  id String @id @default(uuid())
+  organizationId String
+  organization Organization @relation(fields:[organizationId],references:[id])
+  batchId String
+  batch IssuanceBatch @relation(fields:[batchId,organizationId],references:[id,organizationId])
+  rowNumber Int
+  data Json
+  status String @default("pending")
+  error String?
+  certificates Certificate[]
+  @@unique([id,organizationId])
+  @@unique([batchId,rowNumber])
+}
+model Certificate {
+  id String @id @default(uuid())
+  organizationId String
+  organization Organization @relation(fields:[organizationId],references:[id])
+  batchId String
+  batch IssuanceBatch @relation(fields:[batchId,organizationId],references:[id,organizationId])
+  rowId String
+  edition Int @default(1)
+  previousCertificateId String? @unique
+  row BatchRow @relation(fields:[rowId,organizationId],references:[id,organizationId])
+  recipientId String
+  recipient Recipient @relation(fields:[recipientId,organizationId],references:[id,organizationId])
+  templateVersionId String
+  templateVersion TemplateVersion @relation(fields:[templateVersionId,organizationId],references:[id,organizationId])
+  number String @unique
+  publicId String @unique @default(uuid())
+  expiresAt DateTime?
+  revision Int @default(1)
+  dataSnapshot Json
+  status String @default("valid")
+  generationStatus String @default("pending")
+  pdfKey String?
+  pdfSha256 String?
+  issuedAt DateTime @default(now())
+  deliveries EmailDelivery[]
+  @@unique([id,organizationId])
+  @@index([organizationId,recipientId])
+  @@index([organizationId,expiresAt])
+  @@unique([rowId,edition])
+}
+model EmailConnection {
+  id String @id @default(uuid())
+  name String
+  provider String @default("mailpit")
+  active Boolean @default(true)
+  grants ConnectionGrant[]
+}
+model ConnectionGrant {
+  id String @id @default(uuid())
+  organizationId String
+  organization Organization @relation(fields:[organizationId],references:[id])
+  connectionId String
+  connection EmailConnection @relation(fields:[connectionId],references:[id])
+  active Boolean @default(true)
+  senders SenderIdentity[]
+  @@unique([id,organizationId])
+  @@unique([organizationId,connectionId])
+}
+model SenderIdentity {
+  id String @id @default(uuid())
+  organizationId String
+  organization Organization @relation(fields:[organizationId],references:[id])
+  grantId String
+  grant ConnectionGrant @relation(fields:[grantId,organizationId],references:[id,organizationId])
+  displayName String
+  fromAddress String
+  status String @default("development")
+  active Boolean @default(true)
+  deliveries EmailDelivery[]
+  @@unique([id,organizationId])
+  @@index([organizationId])
+}
+model Invitation {
+  purpose String @default("activation")
+  id String @id @default(uuid())
+  userId String
+  user User @relation(fields:[userId],references:[id])
+  tokenHash String @unique
+  expiresAt DateTime
+  consumedAt DateTime?
+  createdAt DateTime @default(now())
+  @@index([userId,consumedAt])
+}
+model EmailDelivery {
+  id String @id @default(uuid())
+  organizationId String
+  organization Organization @relation(fields:[organizationId],references:[id])
+  certificateId String
+  certificate Certificate @relation(fields:[certificateId,organizationId],references:[id,organizationId])
+  senderIdentityId String
+  senderIdentity SenderIdentity @relation(fields:[senderIdentityId,organizationId],references:[id,organizationId])
+  toAddress String
+  status String @default("queued")
+  messageId String @unique
+  error String?
+  acceptedAt DateTime?
+  createdAt DateTime @default(now())
+  attempts DeliveryAttempt[]
+  @@unique([id,organizationId])
+  @@unique([certificateId,senderIdentityId])
+  @@index([organizationId,createdAt])
+}
+model DeliveryAttempt {
+  id String @id @default(uuid())
+  organizationId String
+  organization Organization @relation(fields:[organizationId],references:[id])
+  deliveryId String
+  delivery EmailDelivery @relation(fields:[deliveryId,organizationId],references:[id,organizationId])
+  status String
+  errorClass String?
+  smtpCode Int?
+  startedAt DateTime @default(now())
+  endedAt DateTime?
+  @@index([organizationId,deliveryId])
+}
+model OutboxEvent {
+  id String @id @default(uuid())
+  organizationId String
+  organization Organization @relation(fields:[organizationId],references:[id])
+  kind String
+  entityId String
+  dedupeKey String @unique
+  completedAt DateTime?
+  createdAt DateTime @default(now())
+  @@index([completedAt,createdAt])
+}
+model AuditLog {
+  id String @id @default(uuid())
+  organizationId String
+  organization Organization @relation(fields:[organizationId],references:[id])
+  actorId String?
+  action String
+  resourceId String?
+  metadata Json?
+  createdAt DateTime @default(now())
+  @@index([organizationId,createdAt])
+}
+
+model AccountMail {
+  id String @id @default(uuid())
+  userId String
+  user User @relation(fields:[userId],references:[id],onDelete:Cascade)
+  purpose String
+  status String @default("queued")
+  createdAt DateTime @default(now())
+  @@index([status,createdAt])
+  @@index([userId,purpose,createdAt])
+}

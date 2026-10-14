@@ -1,0 +1,39 @@
+# Preparation overlay, not a claim of production readiness. Requires Docker Compose >=2.24.4.
+# Phase 1 intentionally keeps all external mail disabled.
+services:
+  postgres:
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set a private database password}
+    ports: !reset []
+  redis:
+    ports: !reset []
+  mailpit:
+    profiles: [development]
+    ports: !reset []
+  migrate:
+    environment:
+      NODE_ENV: production
+      APP_ORIGIN: ${DOCKER_APP_ORIGIN:?Set the canonical HTTPS origin}
+      SESSION_SECRET: ${SESSION_SECRET:?Set a private session secret}
+      MAIL_MODE: disabled
+  api:
+    environment:
+      NODE_ENV: production
+      APP_ORIGIN: ${DOCKER_APP_ORIGIN:?Set the canonical HTTPS origin}
+      SESSION_SECRET: ${SESSION_SECRET:?Set a private session secret}
+      MAIL_MODE: disabled
+  worker:
+    environment:
+      NODE_ENV: production
+      APP_ORIGIN: ${DOCKER_APP_ORIGIN:?Set the canonical HTTPS origin}
+      SESSION_SECRET: ${SESSION_SECRET:?Set a private session secret}
+      MAIL_MODE: disabled
+  seed:
+    environment:
+      NODE_ENV: production
+      MAIL_MODE: disabled
+      SEED_ADMIN_PASSWORD: ''
+
+networks:
+  backend:
+    internal: true

@@ -1,0 +1,22 @@
+{
+  "name": "@cert/renderer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.tsx",
+    "./server": "./src/server.tsx",
+    "./fonts/NotoSansTC-wght.ttf": "./fonts/NotoSansTC-wght.ttf"
+  },
+  "dependencies": {
+    "@cert/contracts": "workspace:*",
+    "fontkit": "2.0.4",
+    "playwright": "1.64.1",
+    "qrcode": "1.5.4",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@types/fontkit": "2.0.9"
+  }
+}
