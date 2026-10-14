@@ -1,5 +1,5 @@
-import { createContext, useContext, useState, type ReactNode } from "react";
-import { Navigate, NavLink, Outlet, useMatches, useNavigate, useParams } from "react-router";
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { Navigate, NavLink, Outlet, useLocation, useMatches, useNavigate, useParams } from "react-router";
 import { ExitIcon } from "@radix-ui/react-icons";
 import { findMembership, useSession } from "./session";
 import type { Membership } from "../lib/types";
@@ -32,6 +32,17 @@ function Shell({ membership, children }: { membership?: Membership; children: Re
   const { session, logout } = useSession();
   const navigate = useNavigate();
   const [error, setError] = useState("");
+  const nav = useRef<HTMLElement>(null);
+  const { pathname } = useLocation();
+  // On narrow screens the section links scroll sideways; keep the current one in view.
+  useEffect(() => {
+    const active = nav.current?.querySelector<HTMLElement>("a.active");
+    const bar = nav.current;
+    if (!active || !bar || bar.scrollWidth <= bar.clientWidth) return;
+    const a = active.getBoundingClientRect();
+    const b = bar.getBoundingClientRect();
+    bar.scrollLeft += a.left - b.left - (b.width - a.width) / 2;
+  }, [pathname]);
   const wide = useMatches().some((match) => (match.handle as RouteHandle | undefined)?.wide);
   const memberships = session?.memberships ?? [];
   const current = membership ?? memberships[0];
@@ -70,7 +81,7 @@ function Shell({ membership, children }: { membership?: Membership; children: Re
             </label>
           )}
           {current && (
-            <nav className="app-nav" aria-label="主要導覽">
+            <nav className="app-nav" aria-label="主要導覽" ref={nav}>
               {sections.map((item) => (
                 <NavLink key={item.to} to={`/o/${current.organization.id}/${item.to}`}>
                   {item.label}

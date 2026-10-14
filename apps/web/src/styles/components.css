@@ -168,7 +168,7 @@ select.input {
   width: 100%;
   min-height: 48px;
   padding: 11px 16px;
-  border: 1px solid var(--color-line-strong);
+  border: 1px solid var(--color-line-strong); /* taste-skill-ignore: a form field keeps its boundary, like the inputs beside it */
   border-radius: var(--radius-control);
   background: var(--color-ground);
   font-size: 16px;
@@ -240,9 +240,7 @@ select.input {
   list-style: none;
   border-radius: 18px;
   background: var(--color-ground);
-  box-shadow:
-    0 0 0 1px var(--color-line),
-    0 18px 48px rgb(30 28 27 / 0.16); /* taste-skill-ignore: an open menu floats over the page */
+  box-shadow: 0 0 0 1px var(--color-line), 0 18px 48px rgb(30 28 27 / 0.16); /* taste-skill-ignore: an open menu floats over the page */
   transform-origin: top center;
   animation: select-in 160ms var(--ease-out);
   scrollbar-width: thin;

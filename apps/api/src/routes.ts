@@ -1056,12 +1056,23 @@ export async function registerRoutes(app: FastifyInstance) {
   app.get("/api/organizations/:org/audit", async (req) => {
     const { org } = params(req);
     await authorize(req, org, "audit.read");
+    const items = await db.auditLog.findMany({
+      where: { organizationId: org },
+      orderBy: { createdAt: "desc" },
+      ...paging(req),
+    });
+    // Show who acted by email rather than by account ID.
+    const actorIds = [...new Set(items.flatMap((item) => (item.actorId ? [item.actorId] : [])))];
+    const actors = new Map(
+      (await db.user.findMany({ where: { id: { in: actorIds } }, select: { id: true, email: true } })).map(
+        (user) => [user.id, user.email],
+      ),
+    );
     return {
-      items: await db.auditLog.findMany({
-        where: { organizationId: org },
-        orderBy: { createdAt: "desc" },
-        ...paging(req),
-      }),
+      items: items.map((item) => ({
+        ...item,
+        actor: item.actorId && actors.has(item.actorId) ? { email: actors.get(item.actorId)! } : null,
+      })),
     };
   });
   app.get(

@@ -376,6 +376,12 @@
   .canvas-scroll {
     min-height: 520px;
   }
+  /* The field list can be long; the sheet stays in view beside it instead of stretching. */
+  .canvas-workspace {
+    align-self: start;
+    position: sticky;
+    top: 0;
+  }
   .editor-right {
     grid-column: 1 / -1;
     display: grid;
@@ -393,6 +399,11 @@
   .editor-layout {
     display: flex;
     flex-direction: column;
+  }
+  /* On a phone the sheet comes first; the panels follow it. */
+  .canvas-workspace {
+    order: -1;
+    position: static;
   }
   .layer-list {
     flex-direction: row;

@@ -247,7 +247,7 @@ export function BatchDetailPage() {
           <div className="section-title section-title-row">
             <div>
               <h2 id="recipients-heading">收件人與產製結果</h2>
-              <p>預覽由伺服器產出，樣張使用示範編號。</p>
+              <p>預覽由伺服器產出，樣張顯示下一個流水號的格式，不會占用號碼。</p>
             </div>
             {permissions.includes("certificates.generate") && !allGenerated && (
               <Button
@@ -345,7 +345,7 @@ export function BatchDetailPage() {
                   return (
                     <tr key={row.id}>
                       {canDownload && (
-                        <td>
+                        <td className="cell-select">
                           <label className="check-hit">
                             <input
                               type="checkbox"
@@ -365,28 +365,28 @@ export function BatchDetailPage() {
                           </label>
                         </td>
                       )}
-                      <td className="tabular">{rows.indexOf(row) + 1}</td>
-                      <td>
+                      <td className="tabular cell-index">{rows.indexOf(row) + 1}</td>
+                      <td className="cell-recipient">
                         <span className="cell-title">{row.data.recipient_name}</span>
                         <span className="cell-sub">來源列號 {row.rowNumber}</span>
                         <span className="cell-sub">{row.data.recipient_email}</span>
                       </td>
-                      <td>
+                      <td data-label="產製狀態">
                         <span className="status-stack">
                           <Status value={row.status} />
                           {row.certificate && <Status value={row.certificate.status ?? "valid"} />}
                         </span>
                       </td>
-                      <td className="tabular">
+                      <td className="tabular" data-label="證書編號">
                         {row.error ? <span className="danger-text">{row.error}</span> : (row.certificate?.number ?? "等待產製")}
                       </td>
-                      <td>
+                      <td data-label="通知狀態">
                         {deliveries.map((d) => (
                           <Status key={d.id} value={d.status} />
                         ))}
                         {!deliveries.length && <span className="field-help">尚未通知</span>}
                       </td>
-                      <td className="cell-pdf">
+                      <td className="cell-pdf" data-label="PDF 與證書">
                         <div className="btn-row">
                           {canDownload && eligibleRows.includes(row) && (
                             <Button

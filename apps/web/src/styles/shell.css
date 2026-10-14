@@ -422,6 +422,18 @@
   font-size: var(--step-lead);
   line-height: 1.5;
 }
+/* The serial number is what a verifier compares against the paper, so it reads first and large. */
+.verify-facts .verify-serial {
+  grid-column: 1 / -1;
+}
+.verify-facts .verify-serial dd {
+  font-family: var(--font-serif);
+  font-size: clamp(1.75rem, 1.1rem + 2.4vw, 2.75rem);
+  font-weight: 400;
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
 .verify-record {
   display: grid;
   gap: 24px;
