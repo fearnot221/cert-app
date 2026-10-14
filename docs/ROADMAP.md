@@ -4,8 +4,8 @@
 
 ## 建議接手順序
 
-1. 依 HANDOFF.md 建立乾淨環境，確認 seed、36 項 integration（含 worker 演練）、24 項 unit／renderer 與 3 條 browser flow。
-2. 修復 KNOWN_ISSUES 的 BUG-001、BUG-002，補足變更中預覽與失敗通知重試的回歸測試。
+1. 依 HANDOFF.md 建立乾淨環境，確認 seed、38 項 integration（含 worker 演練）、24 項 unit／renderer 與 3 條 browser flow。
+2. ~~修復 KNOWN_ISSUES 的 BUG-001、BUG-002~~（2026-10-14 已完成 API 與回歸測試；後台 UI 仍需接上「重試失敗通知」與顯示 send 回傳的排隊／略過數）。
 3. 完成 P0 部署前工作，取得真實網域／SMTP／備份環境，才進入對外試營運。
 4. 優先交付到期儀表板／提醒與名單維護，再擴充編輯器和大型批次。
 
@@ -24,7 +24,7 @@
 
 | 工作 | 類型 | 驗收條件 |
 | --- | --- | --- |
-| 失敗通知重試與真實提交數 | Bug fix + enhancement | 見 BUG-002；逐封原因、重試歷程、可重試分類；unknown 不能直接重寄；雙擊僅一工作 |
+| 失敗通知重試與真實提交數 | Bug fix + enhancement | API 已完成（見 KNOWN_ISSUES BUG-002）；剩後台 UI：重試按鈕與理由輸入、顯示 queued／skipped、逐封原因與重試歷程 |
 | 效期儀表板與批次續期 | Enhancement | 跨頁查詢已到期／7、30、90 天內到期；選取批次修改，逐張 revision 衝突報告與理由，權限／audit 完整 |
 | 到期提醒排程 | 新 feature | opt-in、時區、提醒天數、收件人偏好、去重與退訂；排程延遲／重啟不重複寄送 |
 | 活動名單維護 | Enhancement | 產製前新增／移除收件人、重新匯入差異預覽、欄位錯誤定位；生成後不得改既有快照 |

@@ -604,19 +604,21 @@ export async function registerRoutes(app: FastifyInstance) {
       };
       if (activePreviews >= 2) fail(429, "PDF 預覽忙碌，請稍後重試");
       activePreviews++;
+      let pdf: Awaited<ReturnType<typeof renderVersionPdf>>;
       try {
-        const pdf = await renderVersionPdf(b.templateVersion, org, data);
-        const updated = await db.issuanceBatch.updateMany({
-          where: { id: b.id, revision: b.revision, status: { not: "cancelled" } },
-          data: { previewedAt: new Date() },
-        });
-        if (!updated.count) fail(409, "活動已變更，請重新預覽");
-        return reply.type("application/pdf").send(pdf);
+        pdf = await renderVersionPdf(b.templateVersion, org, data);
       } catch (error) {
+        // Only rendering failures map to 422; business conflicts below keep their own status.
         fail(422, error instanceof Error ? error.message : "PDF 預覽失敗");
       } finally {
         activePreviews--;
       }
+      const updated = await db.issuanceBatch.updateMany({
+        where: { id: b.id, revision: b.revision, status: { not: "cancelled" } },
+        data: { previewedAt: new Date() },
+      });
+      if (!updated.count) fail(409, "活動已變更，請重新預覽");
+      return reply.type("application/pdf").send(pdf);
     },
   );
   app.post("/api/organizations/:org/batches/:id/generate", async (req) => {
@@ -789,13 +791,15 @@ export async function registerRoutes(app: FastifyInstance) {
       },
     });
     if (!sender) fail(403, "寄件身分未授權或已停用");
-    await db.$transaction(async (tx) => {
+    return db.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM "IssuanceBatch" WHERE id=${id!} AND "organizationId"=${org} FOR UPDATE`;
       const b = await getBatch(org, id!, tx);
       if (b.status === "cancelled") fail(409, "活動已取消");
       const eligible = b.rows.filter(r => r.certificate?.status === "valid" && (!r.certificate.expiresAt || r.certificate.expiresAt > new Date()));
       if (eligible.some(r => r.status !== "success")) fail(409, "有效證書產製成功後才能發送");
       if (!eligible.length) fail(409, "沒有可寄送的有效證書");
+      const queued: string[] = [];
+      const skipped = emptyDeliveryCounts();
       for (const row of eligible) {
         const c = row.certificate!;
         const data = c.dataSnapshot as Record<string, string>;
@@ -817,17 +821,23 @@ export async function registerRoutes(app: FastifyInstance) {
           },
           update: {},
         });
-        if (delivery.status === "queued")
-          await tx.outboxEvent.upsert({
-            where: { dedupeKey: `mail-${delivery.id}` },
-            create: {
-              organizationId: org,
-              kind: "mail",
-              entityId: delivery.id,
-              dedupeKey: `mail-${delivery.id}`,
-            },
-            update: {},
-          });
+        // An existing delivery is never reset here: failed/cancelled ones need the explicit
+        // retry action, and unknown ones need a human to check the Message-ID first.
+        if (delivery.id !== deliveryId) {
+          skipped[deliveryCountKey(delivery.status)]++;
+          continue;
+        }
+        queued.push(delivery.id);
+        await tx.outboxEvent.upsert({
+          where: { dedupeKey: `mail-${delivery.id}` },
+          create: {
+            organizationId: org,
+            kind: "mail",
+            entityId: delivery.id,
+            dedupeKey: `mail-${delivery.id}`,
+          },
+          update: {},
+        });
       }
       await tx.auditLog.create({
         data: {
@@ -835,11 +845,98 @@ export async function registerRoutes(app: FastifyInstance) {
           actorId: user.id,
           action: "batch.mail_requested",
           resourceId: b.id,
-          metadata: { actorEmail: user.email, senderIdentityId: sender.id, count: eligible.length, certificateIds: eligible.map(r => r.certificate!.id) },
+          metadata: { actorEmail: user.email, senderIdentityId: sender.id, count: eligible.length, queued: queued.length, skipped, certificateIds: eligible.map(r => r.certificate!.id) },
         },
       });
+      return {
+        ok: true,
+        queued: queued.length,
+        skipped,
+        message: queued.length
+          ? `已排入 ${queued.length} 封通知`
+          : deliverySkipMessage(skipped),
+      };
     });
-    return { ok: true };
+  });
+  app.post("/api/organizations/:org/batches/:id/deliveries/retry", async (req) => {
+    const { org, id } = params(req);
+    const { user } = await authorize(req, org, "mail.send");
+    await authorize(req, org, "certificates.issue");
+    if (config.MAIL_MODE !== "mailpit") fail(409, "寄信尚未啟用");
+    const body = z
+      .object({ senderIdentityId: z.uuid(), reason: z.string().trim().min(1).max(500) })
+      .strict()
+      .parse(req.body);
+    const sender = await db.senderIdentity.findFirst({
+      where: {
+        id: body.senderIdentityId,
+        organizationId: org,
+        active: true,
+        status: "development",
+        grant: {
+          active: true,
+          connection: { active: true, provider: "mailpit" },
+        },
+      },
+    });
+    if (!sender) fail(403, "寄件身分未授權或已停用");
+    return db.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "IssuanceBatch" WHERE id=${id!} AND "organizationId"=${org} FOR UPDATE`;
+      const b = await getBatch(org, id!, tx);
+      if (b.status === "cancelled") fail(409, "活動已取消");
+      const now = new Date();
+      const eligible = new Set(
+        b.rows
+          .filter(r => r.status === "success" && r.certificate?.status === "valid" && r.certificate.generationStatus === "success" && (!r.certificate.expiresAt || r.certificate.expiresAt > now))
+          .map(r => r.certificate!.id),
+      );
+      const deliveries = await tx.emailDelivery.findMany({
+        where: { organizationId: org, senderIdentityId: sender.id, certificate: { batchId: b.id } },
+        orderBy: { createdAt: "asc" },
+      });
+      const retryable = deliveries.filter(d => retryableDeliveryStatuses.includes(d.status) && eligible.has(d.certificateId));
+      const skipped = emptyDeliveryCounts();
+      for (const d of deliveries)
+        if (!retryable.includes(d)) skipped[eligible.has(d.certificateId) ? deliveryCountKey(d.status) : "ineligible"]++;
+      if (!retryable.length) fail(409, `沒有可重試的通知：${deliverySkipMessage(skipped)}`);
+      for (const d of retryable) {
+        // Attempts stay as history; only the delivery is moved back to queued with a fresh outbox event.
+        const reset = await tx.emailDelivery.updateMany({
+          where: { id: d.id, status: d.status },
+          data: { status: "queued", error: null },
+        });
+        if (reset.count !== 1) fail(409, "通知狀態已變更，請重新整理");
+        await tx.outboxEvent.create({
+          data: {
+            organizationId: org,
+            kind: "mail",
+            entityId: d.id,
+            dedupeKey: `mail-retry-${d.id}-${randomUUID()}`,
+          },
+        });
+      }
+      await tx.auditLog.create({
+        data: {
+          organizationId: org,
+          actorId: user.id,
+          action: "batch.mail_retry_requested",
+          resourceId: b.id,
+          metadata: {
+            actorEmail: user.email,
+            reason: body.reason,
+            senderIdentityId: sender.id,
+            deliveries: retryable.map(d => ({ id: d.id, certificateId: d.certificateId, before: { status: d.status, error: d.error }, after: { status: "queued" } })),
+            skipped,
+          },
+        },
+      });
+      return {
+        ok: true,
+        queued: retryable.length,
+        skipped,
+        message: `已重新排入 ${retryable.length} 封通知`,
+      };
+    });
   });
   app.get("/api/organizations/:org/deliveries", async (req) => {
     const { org } = params(req);
@@ -934,4 +1031,24 @@ export async function registerRoutes(app: FastifyInstance) {
       .header("Content-Disposition", `attachment; filename="${c.number}.pdf"`)
       .send(await storage.get(c.pdfKey));
   });
+}
+
+const retryableDeliveryStatuses = ["failed", "cancelled"];
+function emptyDeliveryCounts() {
+  return { inProgress: 0, accepted: 0, unknown: 0, failed: 0, cancelled: 0, ineligible: 0 };
+}
+type DeliveryCounts = ReturnType<typeof emptyDeliveryCounts>;
+function deliveryCountKey(status: string): keyof DeliveryCounts {
+  if (status === "accepted" || status === "unknown" || status === "failed" || status === "cancelled") return status;
+  return "inProgress";
+}
+function deliverySkipMessage(skipped: DeliveryCounts) {
+  const parts = [
+    skipped.inProgress && `${skipped.inProgress} 封仍在排程或傳送中`,
+    skipped.accepted && `${skipped.accepted} 封已交付 SMTP`,
+    skipped.unknown && `${skipped.unknown} 封結果不確定，請先以 Message-ID 人工核對`,
+    (skipped.failed || skipped.cancelled) && `${skipped.failed + skipped.cancelled} 封先前失敗或取消，請使用「重試失敗通知」`,
+    skipped.ineligible && `${skipped.ineligible} 封所屬證書目前無效或已到期`,
+  ].filter(Boolean);
+  return parts.length ? `未排入新通知：${parts.join("；")}` : "未排入新通知";
 }

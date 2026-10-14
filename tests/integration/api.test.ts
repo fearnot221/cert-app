@@ -875,6 +875,8 @@ describe("sender authorization and separate notification requests", () => {
         { senderIdentityId: senderA },
       );
       expect(response.statusCode, response.body).toBe(200);
+      expect(response.json().queued).toBe(i === 0 ? 1 : 0);
+      if (i === 1) expect(response.json().skipped.inProgress).toBe(1);
     }
     const deliveries = await db.emailDelivery.findMany({
       where: { certificateId: certA },
@@ -2185,4 +2187,74 @@ it('keeps the signed CSRF token stable across tabs without weakening rejection o
   expect(first.json().csrfToken).toBe(second.json().csrfToken);
   expect(first.json().csrfToken).toMatch(/^[a-f0-9]{64}$/);
   expect((await owner.request('POST', `/api/organizations/${orgA}/batches/${randomUUID()}/cancel`, { reason: 'test', revision: 1 }, { csrf: false })).statusCode).toBe(403);
+});
+
+describe('preview conflicts and notification retry', () => {
+  it('keeps 409 when the batch changes while a preview is rendering (BUG-001)', async () => {
+    const created = await owner.request('POST', `/api/organizations/${orgA}/batches`, { templateVersionId: versionA, eventName: '預覽衝突', records: [{ rowNumber: 2, data: { recipient_name: '預覽學員', recipient_email: email('preview') } }], idempotencyKey: randomUUID() });
+    expect(created.statusCode, created.body).toBe(200);
+    const batchId = created.json().id;
+    const row = await db.batchRow.findFirstOrThrow({ where: { batchId } });
+    let pending: ReturnType<Client['request']> | undefined;
+    // Hold an uncommitted revision bump: the preview reads the old revision, renders, then blocks on the row lock.
+    await db.$transaction(async (tx) => {
+      await tx.issuanceBatch.update({ where: { id: batchId }, data: { revision: { increment: 1 } } });
+      pending = owner.request('POST', `/api/organizations/${orgA}/batches/${batchId}/preview`, { rowId: row.id });
+      for (let i = 0; i < 600; i += 1) {
+        const [waiting] = await db.$queryRaw<{ count: bigint }[]>`SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query ILIKE '%IssuanceBatch%'`;
+        if (Number(waiting!.count) > 0) return;
+        await new Promise(r => setTimeout(r, 50));
+      }
+      throw new Error('preview never reached the conditional update');
+    }, { timeout: 60000 });
+    const preview = await pending!;
+    expect(preview.statusCode, preview.body).toBe(409);
+    expect(preview.json().message).toBe('活動已變更，請重新預覽');
+    expect((await db.issuanceBatch.findUniqueOrThrow({ where: { id: batchId } })).previewedAt).toBeNull();
+  });
+
+  it('reports skipped notifications and retries only failed/cancelled ones once with a reason (BUG-002)', async () => {
+    const fixture = await createCertificate(orgA, versionA, recipientId, 'mail-retry');
+    const url = `/api/organizations/${orgA}/batches/${fixture.batch.id}`;
+    const first = await owner.request('POST', `${url}/send`, { senderIdentityId: senderA });
+    expect(first.statusCode, first.body).toBe(200);
+    expect(first.json().queued).toBe(1);
+    const delivery = await db.emailDelivery.findFirstOrThrow({ where: { certificateId: fixture.cert.id } });
+    // Simulate the worker having cancelled it while the certificate was expired, then a renewal.
+    await db.emailDelivery.update({ where: { id: delivery.id }, data: { status: 'cancelled', error: '證書已失效或到期' } });
+    await db.deliveryAttempt.create({ data: { organizationId: orgA, deliveryId: delivery.id, status: 'failed', errorClass: 'permanent', smtpCode: 550, endedAt: new Date() } });
+    const resend = await owner.request('POST', `${url}/send`, { senderIdentityId: senderA });
+    expect(resend.statusCode, resend.body).toBe(200);
+    expect(resend.json().queued).toBe(0);
+    expect(resend.json().skipped.cancelled).toBe(1);
+    expect(resend.json().message).toContain('重試失敗通知');
+    expect(await db.outboxEvent.count({ where: { kind: 'mail', entityId: delivery.id } })).toBe(1);
+
+    expect((await designer.request('POST', `${url}/deliveries/retry`, { senderIdentityId: senderA, reason: '續期後重寄' })).statusCode).toBe(403);
+    expect((await owner.request('POST', `${url}/deliveries/retry`, { senderIdentityId: senderA })).statusCode).toBe(400);
+    expect((await owner.request('POST', `${url}/deliveries/retry`, { senderIdentityId: senderB, reason: '續期後重寄' })).statusCode).toBe(403);
+    const results = await Promise.all([
+      owner.request('POST', `${url}/deliveries/retry`, { senderIdentityId: senderA, reason: '續期後重寄' }),
+      owner.request('POST', `${url}/deliveries/retry`, { senderIdentityId: senderA, reason: '續期後重寄' }),
+    ]);
+    expect(results.map(r => r.statusCode).sort()).toEqual([200, 409]);
+    expect(results.find(r => r.statusCode === 200)!.json().queued).toBe(1);
+    expect(await db.outboxEvent.count({ where: { kind: 'mail', entityId: delivery.id } })).toBe(2);
+    const requeued = await db.emailDelivery.findUniqueOrThrow({ where: { id: delivery.id }, include: { attempts: true } });
+    expect(requeued.status).toBe('queued'); expect(requeued.error).toBeNull(); expect(requeued.attempts).toHaveLength(1);
+    const audit = await db.auditLog.findFirstOrThrow({ where: { resourceId: fixture.batch.id, action: 'batch.mail_retry_requested' } });
+    expect(JSON.stringify(audit.metadata)).toContain('續期後重寄');
+    expect(JSON.stringify(audit.metadata)).toContain('cancelled');
+
+    await processMail(delivery.id, orgA);
+    const sent = await db.emailDelivery.findUniqueOrThrow({ where: { id: delivery.id }, include: { attempts: true } });
+    expect(sent.status).toBe('accepted'); expect(sent.attempts).toHaveLength(2);
+    expect((await owner.request('POST', `${url}/deliveries/retry`, { senderIdentityId: senderA, reason: '不應重寄' })).statusCode).toBe(409);
+
+    await db.emailDelivery.update({ where: { id: delivery.id }, data: { status: 'unknown' } });
+    const ambiguous = await owner.request('POST', `${url}/deliveries/retry`, { senderIdentityId: senderA, reason: '不應盲目重寄' });
+    expect(ambiguous.statusCode).toBe(409);
+    expect(ambiguous.json().message).toContain('人工核對');
+    expect(await db.outboxEvent.count({ where: { kind: 'mail', entityId: delivery.id } })).toBe(2);
+  });
 });

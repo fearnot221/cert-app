@@ -91,3 +91,12 @@ Phase 1 的主要完整流程已以真實服務通過。啟用重發／密碼重
 最終本機驗證：36/36 integration 通過（79.48 秒，含公開驗證／到期／續期／CSRF 多視窗回歸）；24/24 unit／renderer 通過。build、typecheck、lint 通過。OpenAPI 39 paths，公開驗證端點 security 為空（匿名可讀），私有端點保留授權。遠端 CI 與部署不以本機結果代替。
 
 最後一輪完整 browser E2E：3/3 通過（38.7 秒），含 Excel／ZIP／生命週期、芫荽／帳號恢復，以及公開驗證／QR／期限管理。已檢查 390px 公開驗證頁截圖。Demo 與 API health 保持正常。
+
+## 2026-10-14 交接待修項目
+
+- BUG-001：預覽渲染期間活動被修改時回 409（原本被改成 422），只有渲染失敗映射 422。
+- BUG-002：`send` 回傳 `{ queued, skipped, message }`，零排隊時說明原因；新增 `POST /api/organizations/:org/batches/:id/deliveries/retry`（需理由），只重排目前有效證書的 failed／cancelled 通知，保留 attempts、新 outbox、audit 前後狀態；unknown 拒絕；活動鎖內執行，雙擊只排一次。後台 UI 尚未接上。
+- BUG-003：Fastify 改用 `logController`，deprecation 消失；pg 並行查詢警告來自 `@prisma/adapter-pg`，待上游。
+- E2E：修正補發後輪詢的競態（舊狀態已是 generated，需等補發請求完成再輪詢）。
+
+本機驗證（Node 24.21.0 跑 Playwright；API／worker／vitest 於 Node 22）：38/38 integration（新增 2 項回歸，且確認未修正前兩項皆失敗）、24/24 unit／renderer、3/3 browser E2E 通過；typecheck、lint 通過。Chromium 以非 root 使用者執行，避免 sandbox 啟動失敗。遠端 CI 未以本機結果代替。

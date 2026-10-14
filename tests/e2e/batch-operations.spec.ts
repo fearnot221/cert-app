@@ -183,6 +183,8 @@ test("Excel 工作表與欄位對應、錯誤報告、批次 ZIP、活動篩選�
   await modal.getByLabel('姓名', { exact: true }).fill('補發學員');
   await modal.getByLabel('操作原因').fill('依正確姓名補發');
   await modal.getByRole('button', { name: '確認重新發放證書', exact: true }).click();
+  // The batch was already "generated" before the reissue; wait for the request to commit before polling.
+  await expect(modal).toHaveCount(0);
   await expect.poll(async () => (await (await page.request.get(manualPath)).json()).status, { timeout: 60000 }).toBe('generated');
   await page.getByRole('button', { name: '重新整理', exact: true }).click();
   await expect(page.getByText('2 個版本', { exact: true })).toBeVisible();
