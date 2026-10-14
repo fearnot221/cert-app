@@ -30,6 +30,8 @@ jobs:
           docker compose up -d --wait postgres redis mailpit
           docker compose exec -T postgres createdb -U cert cert_app_test
       - run: pnpm db:generate
+      - name: Allow Chromium sandbox (Ubuntu 24.04 AppArmor userns restriction)
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - run: pnpm exec playwright install --with-deps chromium
       - run: sudo apt-get update && sudo apt-get install -y poppler-utils
       - run: pnpm lint
