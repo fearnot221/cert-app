@@ -22,6 +22,7 @@ const data = {
   organization_name: "繁體中文測試學院",
   event_name: "認證課程",
   issue_date: "2026-10-15",
+  certificate_number: "CERT-000128",
 };
 
 describe("shared HTML and pinned font", () => {

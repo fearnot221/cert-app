@@ -6,6 +6,7 @@ import { useAction, usePagedResource } from "../../lib/hooks";
 import { formatDate } from "../../lib/format";
 import type { MyCertificate } from "../../lib/types";
 import { Button } from "../../ui/Button";
+import { Select } from "../../ui/Select";
 import { Empty, Loading, LoadError, Notice, PageHeader, Pagination, Status } from "../../ui/feedback";
 import { VerificationLinks } from "../verification/VerificationPage";
 
@@ -57,12 +58,12 @@ export function MyCertificatesPage() {
           <div className="filters">
             <label className="field">
               發證組織
-              <select value={organization} onChange={(e) => setOrganization(e.target.value)}>
-                <option value="">所有組織</option>
-                {organizations.map((name) => (
-                  <option key={name}>{name}</option>
-                ))}
-              </select>
+              <Select
+                label="發證組織"
+                value={organization}
+                onChange={setOrganization}
+                options={[{ value: "", label: "所有組織" }, ...organizations.map((name) => ({ value: name, label: name }))]}
+              />
             </label>
             <label className="field filters-grow">
               搜尋活動或證書編號

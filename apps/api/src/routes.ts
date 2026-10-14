@@ -10,6 +10,7 @@ import {
   validateCsv,
   validateImportRows,
   encodeCsv, certificateStatus, expiryDateSchema, expiryInstant, verificationUrl, unexpiredWhere,
+  allocateCertificateNumber,
 } from "@cert/domain";
 import {
   TemplateDocumentSchema,
@@ -18,6 +19,9 @@ import {
   IANSUI_VERSION,
   FONT_ASSET_VERSION,
   RENDERER_VERSION,
+  CertificateSerialSchema,
+  formatCertificateNumber,
+  withBuiltinFields,
   type TemplateDocument,
 } from "@cert/contracts";
 import { DEFAULT_FONT_PATH, IANSUI_FONT_PATH } from "@cert/renderer/server";
@@ -25,6 +29,7 @@ import { authorize, userFor, fail, audit } from "./auth.js";
 import { config } from "@cert/config";
 import { renderVersionPdf } from "../../../packages/domain/src/rendering.js";
 import { parseImportFile } from "../../../packages/domain/src/spreadsheet-import.js";
+import { isPdf, rasterizePdfBackground } from "../../../packages/domain/src/pdf-background.js";
 import { registerVerificationRoutes } from "./verification.js";
 import { registerLifecycleRoutes } from "./lifecycle.js";
 import { zipSync } from "fflate";
@@ -140,6 +145,59 @@ export async function registerRoutes(app: FastifyInstance) {
   app.get("/api/fonts/noto-sans-tc", async (_req, reply) =>
     reply.type("font/ttf").send(await readFile(DEFAULT_FONT_PATH)),
   );
+  const serialSettings = (o: {
+    certificatePrefix: string;
+    certificateDigits: number;
+    certificateSequence: number;
+  }) => ({
+    prefix: o.certificatePrefix,
+    digits: o.certificateDigits,
+    issued: o.certificateSequence,
+    nextSequence: o.certificateSequence + 1,
+    nextNumber: formatCertificateNumber(o.certificatePrefix, o.certificateDigits, o.certificateSequence + 1),
+  });
+  app.get("/api/organizations/:org/settings/serial", async (req) => {
+    const { org } = params(req);
+    await authorize(req, org, "templates.read");
+    return serialSettings(await db.organization.findUniqueOrThrow({ where: { id: org } }));
+  });
+  app.put("/api/organizations/:org/settings/serial", async (req) => {
+    const { org } = params(req);
+    const { user } = await authorize(req, org, "organization.manage");
+    const body = CertificateSerialSchema.extend({
+      nextSequence: z.number().int().min(1).max(2_000_000_000).optional(),
+    })
+      .strict()
+      .parse(req.body);
+    return db.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "Organization" WHERE id=${org} FOR UPDATE`;
+      const before = await tx.organization.findUniqueOrThrow({ where: { id: org } });
+      const nextSequence = body.nextSequence ?? before.certificateSequence + 1;
+      // Serials only move forward, so a number that was handed out can never be issued again.
+      if (nextSequence <= before.certificateSequence)
+        fail(409, `下一個流水號必須大於已使用的 ${before.certificateSequence}`);
+      if (String(nextSequence).length > body.digits)
+        fail(400, `下一個流水號超過 ${body.digits} 位數，請增加位數`);
+      const after = await tx.organization.update({
+        where: { id: org },
+        data: {
+          certificatePrefix: body.prefix,
+          certificateDigits: body.digits,
+          certificateSequence: nextSequence - 1,
+        },
+      });
+      await tx.auditLog.create({
+        data: {
+          organizationId: org,
+          actorId: user.id,
+          action: "organization.serial_updated",
+          resourceId: org,
+          metadata: { before: serialSettings(before), after: serialSettings(after) },
+        },
+      });
+      return serialSettings(after);
+    });
+  });
   app.get("/api/organizations/:org/templates", async (req) => {
     const { org } = params(req);
     await authorize(req, org, "templates.read");
@@ -178,7 +236,7 @@ export async function registerRoutes(app: FastifyInstance) {
     const body = z
       .object({
         name: z.string().trim().min(1).max(160),
-        document: TemplateDocumentSchema,
+        document: TemplateDocumentSchema.transform(withBuiltinFields),
       })
       .strict()
       .parse(req.body);
@@ -200,7 +258,7 @@ export async function registerRoutes(app: FastifyInstance) {
     const body = z
       .object({
         name: z.string().trim().min(1).max(160),
-        document: TemplateDocumentSchema,
+        document: TemplateDocumentSchema.transform(withBuiltinFields),
         revision: z.number().int().positive(),
       })
       .strict()
@@ -282,8 +340,19 @@ export async function registerRoutes(app: FastifyInstance) {
     const { org } = params(req);
     const { user } = await authorize(req, org, "templates.write");
     const file = await req.file();
-    if (!file) fail(400, "請選擇圖片");
-    const bytes = await file.toBuffer();
+    if (!file) fail(400, "請選擇圖片或 PDF");
+    let bytes = await file.toBuffer();
+    let pdfPages = 0;
+    if (isPdf(bytes)) {
+      try {
+        const page = await rasterizePdfBackground(bytes);
+        bytes = page.png;
+        pdfPages = page.pages;
+      } catch (error) {
+        req.log.warn({ err: error }, "PDF background rasterisation failed");
+        fail(400, "無法讀取這個 PDF，請確認檔案未加密且未損毀");
+      }
+    }
     let metadata: Metadata;
     try {
       metadata = await sharp(bytes, { limitInputPixels: 40000000 }).metadata();
@@ -294,7 +363,7 @@ export async function registerRoutes(app: FastifyInstance) {
       !["png", "jpeg", "webp"].includes(metadata.format || "") ||
       (metadata.pages && metadata.pages > 1)
     )
-      fail(400, "只接受靜態 PNG、JPG 或 WebP");
+      fail(400, "只接受 PDF 或靜態 PNG、JPG、WebP");
     // Decode and re-encode to remove metadata and trailing untrusted content.
     const safe = await sharp(bytes, { limitInputPixels: 40000000 })
       .rotate()
@@ -307,7 +376,7 @@ export async function registerRoutes(app: FastifyInstance) {
       data: {
         id,
         organizationId: org,
-        filename: "background.png",
+        filename: pdfPages ? "background-from-pdf.png" : "background.png",
         mimeType: "image/png",
         storageKey,
         sha256: sha(safe.data),
@@ -322,6 +391,7 @@ export async function registerRoutes(app: FastifyInstance) {
       mimeType: asset.mimeType,
       width: asset.width,
       height: asset.height,
+      ...(pdfPages ? { source: "pdf", pdfPages } : {}),
     };
   });
   app.get("/api/organizations/:org/assets/:id/file", async (req, reply) => {
@@ -614,7 +684,12 @@ export async function registerRoutes(app: FastifyInstance) {
           new Intl.DateTimeFormat("sv-SE", {
             timeZone: "Asia/Taipei",
           }).format(new Date()),
-        certificate_number: "PREVIEW",
+        // The sample shows the format the real certificate will get, without using up a serial.
+        certificate_number: formatCertificateNumber(
+          b.organization.certificatePrefix,
+          b.organization.certificateDigits,
+          b.organization.certificateSequence + 1,
+        ),
         verification_url: `${new URL(config.APP_ORIGIN).origin}/verify/preview`,
       };
       if (activePreviews >= 2) fail(429, "PDF 預覽忙碌，請稍後重試");
@@ -666,12 +741,15 @@ export async function registerRoutes(app: FastifyInstance) {
           },
           update: {},
         });
+        // Generating again (e.g. after a retry) keeps the certificate and its serial number.
+        const existing = await tx.certificate.findUnique({
+          where: { rowId_edition: { rowId: row.id, edition: 1 } },
+        });
         const certId = randomUUID();
         const publicId = randomUUID();
-        const number = `CERT-${certId.toUpperCase()}`;
-        const cert = await tx.certificate.upsert({
-          where: { rowId_edition: { rowId: row.id, edition: 1 } },
-          create: {
+        const number = existing ? existing.number : await allocateCertificateNumber(tx, org);
+        const cert = existing ?? await tx.certificate.create({
+          data: {
             id: certId,
             publicId,
             expiresAt: b.expiresAt,
@@ -694,7 +772,6 @@ export async function registerRoutes(app: FastifyInstance) {
               verification_url: verificationUrl(publicId),
             },
           },
-          update: {},
         });
         if (cert.generationStatus === "pending" && cert.status === "valid")
           await tx.outboxEvent.upsert({

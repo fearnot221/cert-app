@@ -13,6 +13,7 @@ export const permissions = [
   "mail.send",
   "mail.settings.manage",
   "audit.read",
+  "organization.manage",
 ] as const;
 export const rolePermissions: Record<string, string[]> = {
   Owner: [...permissions],

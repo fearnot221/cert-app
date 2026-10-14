@@ -16,6 +16,8 @@ COPY packages/renderer/package.json packages/renderer/package.json
 RUN pnpm install --frozen-lockfile
 # Uses the exact Playwright version locked in @cert/renderer, including its matching Chromium.
 RUN pnpm --filter @cert/renderer exec playwright install --with-deps chromium
+# poppler-utils rasterises PDF certificate backgrounds (first page to PNG).
+RUN apt-get update && apt-get install -y --no-install-recommends poppler-utils && rm -rf /var/lib/apt/lists/*
 COPY . .
 RUN DATABASE_URL=postgresql://build:build@localhost:5432/build pnpm db:generate
 RUN pnpm build

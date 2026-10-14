@@ -144,6 +144,22 @@ export const TemplateDocumentSchema = z
 export type TemplateDocument = z.infer<typeof TemplateDocumentSchema>;
 export type CertificateData = Record<string, string | number>;
 
+/** Serial number format: an uppercase prefix, a hyphen, then the sequence padded with zeros. */
+export const CertificateSerialSchema = z
+  .object({
+    prefix: z
+      .string()
+      .trim()
+      .toUpperCase()
+      .regex(/^[A-Z0-9][A-Z0-9-]{0,15}$/, "前綴只能使用英文字母、數字與連字號，最多 16 字"),
+    digits: z.number().int().min(3).max(10),
+  })
+  .strict();
+
+export function formatCertificateNumber(prefix: string, digits: number, sequence: number) {
+  return `${prefix}-${String(sequence).padStart(digits, "0")}`;
+}
+
 export function collectPlaceholders(document: TemplateDocument): string[] {
   return [
     ...new Set(
@@ -215,6 +231,31 @@ export function validateTemplateData(
   return issues;
 }
 
+/**
+ * Fields every template carries. Recipient fields come from the import list; system fields are
+ * filled in by the platform when a certificate is issued, so they never appear in the import.
+ * `certificate_number` is the organization's serial number, e.g. CERT-000128.
+ */
+export const BUILTIN_FIELDS: readonly (FieldDefinition & { source: "recipient" | "system"; hint: string })[] = [
+  { key: "recipient_name", label: "姓名", type: "text", required: true, source: "recipient", hint: "名單提供" },
+  { key: "recipient_email", label: "Email", type: "email", required: true, source: "recipient", hint: "名單提供，用於寄送" },
+  { key: "certificate_number", label: "證書流水號", type: "text", required: false, source: "system", hint: "發證時自動編號" },
+  { key: "organization_name", label: "組織名稱", type: "text", required: true, source: "system", hint: "自動帶入" },
+  { key: "event_name", label: "活動名稱", type: "text", required: true, source: "system", hint: "取自發證活動" },
+  { key: "issue_date", label: "發證日期", type: "date", required: true, source: "system", hint: "未提供則為發證當天" },
+];
+const builtinKeys = new Set(BUILTIN_FIELDS.map((field) => field.key));
+export const isBuiltinField = (key: string) => builtinKeys.has(key);
+
+/** Adds any built-in field a template is missing (older templates predate some of them). */
+export function withBuiltinFields<T extends TemplateDocument>(document: T): T {
+  const present = new Set(document.fields.map((field) => field.key));
+  const missing = BUILTIN_FIELDS.filter((field) => !present.has(field.key)).map(
+    ({ key, label, type, required }) => ({ key, label, type, required }),
+  );
+  return missing.length ? { ...document, fields: [...document.fields, ...missing] } : document;
+}
+
 export function createDefaultDocument(): TemplateDocument {
   const text = (
     id: string,
@@ -250,6 +291,13 @@ export function createDefaultDocument(): TemplateDocument {
       text("recipient", "{{recipient_name}}", 89, 28, 25),
       text("event", "完成 {{event_name}}", 127, 17, 25),
       text("issued", "發證日期 {{issue_date}}", 166, 11, 12),
+      {
+        ...text("serial", "證書編號 {{certificate_number}}", 190, 9, 8),
+        x: 18,
+        width: 110,
+        minFontSize: 7,
+        align: "left",
+      },
     ],
     fields: [
       { key: "recipient_name", label: "姓名", type: "text", required: true },
@@ -262,6 +310,7 @@ export function createDefaultDocument(): TemplateDocument {
       },
       { key: "event_name", label: "活動名稱", type: "text", required: true },
       { key: "issue_date", label: "發證日期", type: "date", required: true },
+      { key: "certificate_number", label: "證書流水號", type: "text", required: false },
     ],
   };
 }

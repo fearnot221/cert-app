@@ -29,6 +29,11 @@ model Organization {
   id String @id @default(uuid())
   name String
   active Boolean @default(true)
+  /// Certificate serial numbers are `${certificatePrefix}-${zero-padded sequence}`, unique per organization.
+  certificatePrefix String @default("CERT")
+  certificateDigits Int @default(6)
+  /// Last serial handed out. Incremented inside the issuing transaction, so numbers never repeat.
+  certificateSequence Int @default(0)
   createdAt DateTime @default(now())
   roles Role[]
   memberships Membership[]
@@ -175,7 +180,7 @@ model Certificate {
   recipient Recipient @relation(fields:[recipientId,organizationId],references:[id,organizationId])
   templateVersionId String
   templateVersion TemplateVersion @relation(fields:[templateVersionId,organizationId],references:[id,organizationId])
-  number String @unique
+  number String
   publicId String @unique @default(uuid())
   expiresAt DateTime?
   revision Int @default(1)
@@ -190,6 +195,7 @@ model Certificate {
   @@index([organizationId,recipientId])
   @@index([organizationId,expiresAt])
   @@unique([rowId,edition])
+  @@unique([organizationId,number])
 }
 model EmailConnection {
   id String @id @default(uuid())

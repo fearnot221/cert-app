@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { choose } from "./select";
 import ExcelJS from "exceljs";
 import { unzipSync } from "fflate";
 import { readFile } from "node:fs/promises";
@@ -19,9 +20,7 @@ test("Excel 工作表與欄位對應、錯誤報告、批次 ZIP、活動篩選�
   await page.getByRole("link", { name: "發證活動", exact: true }).click();
   await page.getByRole("link", { name: "建立發證活動", exact: true }).click();
   await page.getByLabel("活動名稱", { exact: true }).fill(name);
-  await page
-    .getByRole("combobox", { name: "模板版本", exact: true })
-    .selectOption({ index: 1 });
+  await choose(page, "模板版本", { index: 0 });
   const book = new ExcelJS.Workbook();
   const other = book.addWorksheet("備用");
   other.addRow(["姓名", "Email"]);
@@ -44,12 +43,8 @@ test("Excel 工作表與欄位對應、錯誤報告、批次 ZIP、活動篩選�
           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         buffer: Buffer.from(await book.xlsx.writeBuffer()),
       });
-    await page
-      .getByRole("combobox", { name: "工作表", exact: true })
-      .selectOption({ label: "發證名單（2 筆）" });
-    await page
-      .getByRole("combobox", { name: "對應姓名", exact: true })
-      .selectOption({ label: "學員姓名" });
+    await choose(page, "工作表", "發證名單（2 筆）");
+    await choose(page, "對應姓名", "學員姓名");
   };
   await upload();
   await page.getByRole("button", { name: "檢查名單", exact: true }).click();
@@ -129,9 +124,7 @@ test("Excel 工作表與欄位對應、錯誤報告、批次 ZIP、活動篩選�
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.getByRole("link", { name: "返回發證活動", exact: true }).click();
   await page.getByLabel("搜尋活動", { exact: true }).fill(name);
-  await page
-    .getByRole("combobox", { name: "活動狀態", exact: true })
-    .selectOption("generated");
+  await choose(page, "活動狀態", "已產製");
   await page.screenshot({
     path: "test-results/batch-list.png",
     fullPage: true,
@@ -139,9 +132,7 @@ test("Excel 工作表與欄位對應、錯誤報告、批次 ZIP、活動篩選�
   await expect(page.getByRole("cell", { name, exact: true })).toBeVisible();
   await page.getByRole("link", { name: "建立發證活動", exact: true }).click();
   await page.getByLabel("活動名稱", { exact: true }).fill(`手動 ${unique}`);
-  await page
-    .getByRole("combobox", { name: "模板版本", exact: true })
-    .selectOption({ index: 1 });
+  await choose(page, "模板版本", { index: 0 });
   await page.getByRole("button", { name: "手動新增", exact: true }).click();
   await page.getByLabel("第 1 人姓名", { exact: true }).fill("手動學員");
   await page

@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { Prisma } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { db, validateImportRows, expiryInstant, expiryDateSchema, verificationUrl } from '@cert/domain';
+import { db, validateImportRows, expiryInstant, expiryDateSchema, verificationUrl, allocateCertificateNumber } from '@cert/domain';
 import { TemplateDocumentSchema } from '@cert/contracts';
 import { authorize, fail } from './auth.js';
 const scope = z.object({ org: z.uuid(), id: z.uuid() });
@@ -95,7 +95,7 @@ export async function registerLifecycleRoutes(app: FastifyInstance) {
         const recipient = await tx.recipient.upsert({ where: { organizationId_email: { organizationId: org, email: clean.recipient_email! } }, create: { organizationId: org, userId: account.id, email: account.email, name: clean.recipient_name! }, update: {} });
         const nextId = randomUUID();
         const publicId = randomUUID();
-        const number = `CERT-${nextId.toUpperCase()}`;
+        const number = await allocateCertificateNumber(tx, org);
         const next = await tx.certificate.create({ data: { id: nextId, publicId, expiresAt: body.expiresOn === undefined ? c.expiresAt : expiryInstant(body.expiresOn), organizationId: org, batchId: b.id, rowId: c.rowId, edition: c.edition + 1, previousCertificateId: c.id, recipientId: recipient.id, templateVersionId: c.templateVersionId, number, dataSnapshot: json({ ...c.dataSnapshot as object, ...clean, organization_name: (c.dataSnapshot as Record<string,string>).organization_name, event_name: (c.dataSnapshot as Record<string,string>).event_name, certificate_number: number, verification_url: verificationUrl(publicId) }) } });
         await tx.certificate.update({ where: { id: c.id }, data: { status: c.status === 'revoked' ? 'revoked' : 'superseded' } });
         await tx.batchRow.update({ where: { id: row.id }, data: { data: json(clean), status: 'pending', error: null } });

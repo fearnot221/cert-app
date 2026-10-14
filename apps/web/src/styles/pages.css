@@ -578,3 +578,88 @@ details > summary {
     grid-template-columns: 1fr;
   }
 }
+
+/* ---------- Organization settings: the serial number, shown as it will be printed ---------- */
+.serial-settings {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(300px, 0.8fr);
+  gap: clamp(20px, 3vw, 40px);
+  align-items: start;
+}
+.serial-preview {
+  position: relative;
+  display: grid;
+  gap: 14px;
+  min-height: 360px;
+  align-content: start;
+  padding: clamp(28px, 4vw, 56px);
+  overflow: hidden;
+  border-radius: var(--radius-panel);
+  background: var(--color-issue-soft);
+}
+/* The issuing seal, cropped by the panel's corner: the number is what the seal stamps. */
+.serial-preview::after {
+  content: "";
+  position: absolute;
+  right: -90px;
+  bottom: -110px;
+  width: 300px;
+  height: 300px;
+  border-radius: 50%;
+  background: var(--color-issue);
+  pointer-events: none;
+}
+.serial-preview > * {
+  position: relative;
+  z-index: 1;
+}
+.serial-preview h2 {
+  font-size: var(--step-lead);
+  font-family: var(--font-sans);
+  font-weight: 700;
+}
+.serial-next {
+  font-family: var(--font-serif);
+  font-size: clamp(2.5rem, 1rem + 5vw, 5.5rem);
+  line-height: 1;
+  letter-spacing: -0.02em;
+  overflow-wrap: anywhere;
+}
+.serial-after {
+  font-size: var(--step-lead);
+  color: var(--color-issue-text);
+}
+.serial-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 40px;
+  margin-top: clamp(24px, 4vw, 64px);
+}
+.serial-facts dt {
+  font-size: 13px;
+  color: var(--color-issue-text);
+}
+.serial-facts dd {
+  margin: 2px 0 0;
+  font-size: 16px;
+  font-weight: 500;
+}
+.serial-form {
+  padding: clamp(20px, 2.4vw, 32px);
+  border-radius: var(--radius-panel);
+  background: var(--color-surface);
+}
+.serial-form .field input {
+  background: var(--color-ground);
+}
+.serial-form .field input[aria-invalid="true"] {
+  border-color: var(--color-danger);
+}
+@media (max-width: 900px) {
+  .serial-settings {
+    grid-template-columns: 1fr;
+  }
+  .serial-preview {
+    min-height: 0;
+  }
+}

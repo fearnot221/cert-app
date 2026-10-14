@@ -16,6 +16,7 @@ import type { Batch, Template, Validation } from "../../lib/types";
 import { useWorkspace } from "../../app/AppShell";
 import { BackLink, LoadError, Notice, PageHeader, Pagination } from "../../ui/feedback";
 import { Button } from "../../ui/Button";
+import { Select } from "../../ui/Select";
 
 type Sheet = {
   name: string;
@@ -211,22 +212,18 @@ export function CreateBatchPage() {
           </label>
           <label className="field">
             模板版本
-            <select
+            <Select
+              label="模板版本"
               value={templateVersionId}
-              onChange={(e) => {
-                setTemplateVersionId(e.target.value);
+              onChange={(value) => {
+                setTemplateVersionId(value);
                 setMapping({});
                 invalidate();
               }}
               disabled={templates.loading || action.busy}
-            >
-              <option value="">選擇已發布模板</option>
-              {versions.map((v) => (
-                <option key={v.id} value={v.id}>
-                  {v.templateName} · 第 {v.number} 版
-                </option>
-              ))}
-            </select>
+              placeholder="選擇已發布模板"
+              options={versions.map((v) => ({ value: v.id, label: `${v.templateName} · 第 ${v.number} 版` }))}
+            />
           </label>
           <div className="field">
             <label htmlFor="batch-expires-on">證書到期日（選填）</label>
@@ -317,22 +314,18 @@ export function CreateBatchPage() {
                 <div className="toolbar">
                   <label className="field">
                     工作表
-                    <select
-                      value={sheetIndex}
+                    <Select
+                      label="工作表"
+                      value={String(sheetIndex)}
                       disabled={action.busy}
-                      onChange={(e) => {
-                        const index = Number(e.target.value);
+                      onChange={(value) => {
+                        const index = Number(value);
                         setSheetIndex(index);
                         setMapping(autoMap(sheets[index]!));
                         invalidate();
                       }}
-                    >
-                      {sheets.map((s, index) => (
-                        <option key={index} value={index}>
-                          {s.name}（{s.rows.length} 筆）
-                        </option>
-                      ))}
-                    </select>
+                      options={sheets.map((s, index) => ({ value: String(index), label: `${s.name}（${s.rows.length} 筆）` }))}
+                    />
                   </label>
                   <span>{sheet.rows.length} 筆名單 · 保留原始列號</span>
                 </div>
@@ -341,25 +334,22 @@ export function CreateBatchPage() {
                     <label className="field" key={f.key}>
                       {f.label}
                       {f.required ? "（必填）" : "（選填）"}
-                      <select
-                        aria-label={`對應${f.label}`}
+                      <Select
+                        label={`對應${f.label}`}
                         value={mapping[f.key] ?? ""}
                         disabled={action.busy}
-                        onChange={(e) => {
+                        onChange={(value) => {
                           setMapping((m) => ({
                             ...m,
-                            [f.key]: e.target.value,
+                            [f.key]: value,
                           }));
                           invalidate();
                         }}
-                      >
-                        <option value="">不匯入此欄</option>
-                        {sheet.headers.map((h, index) => (
-                          <option key={index} value={index}>
-                            {h}
-                          </option>
-                        ))}
-                      </select>
+                        options={[
+                          { value: "", label: "不匯入此欄" },
+                          ...sheet.headers.map((h, index) => ({ value: String(index), label: h || `第 ${index + 1} 欄（無標題）` })),
+                        ]}
+                      />
                       <small>
                         {mapping[f.key] !== undefined && mapping[f.key] !== ""
                           ? `例如：${sheet.rows[0]?.values[Number(mapping[f.key])] || "空白"}`

@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { choose } from "./select";
 import sharp from "sharp";
 
 test("芫荽模板 → 批次 PDF → 重發啟用 → 手機下載 → 重設密碼", async ({
@@ -50,9 +51,7 @@ test("芫荽模板 → 批次 PDF → 重發啟用 → 手機下載 → 重設�
   );
   await page.mouse.up();
   await expect(page.getByLabel("X 位置 mm")).not.toHaveValue("28");
-  await page
-    .getByRole("combobox", { name: "字型", exact: true })
-    .selectOption("Iansui");
+  await choose(page, "字型", "芫荽 Iansui");
   await expect(page.locator("[data-certificate-page]")).toHaveAttribute(
     "data-layout-status",
     "ready",
@@ -67,9 +66,7 @@ test("芫荽模板 → 批次 PDF → 重發啟用 → 手機下載 → 重設�
   await page.getByRole("link", { name: "發證活動", exact: true }).click();
   await page.getByRole("link", { name: "建立發證活動", exact: true }).click();
   await page.getByLabel("活動名稱", { exact: true }).fill(eventName);
-  await page
-    .getByRole("combobox", { name: /模板版本/ })
-    .selectOption({ label: `測試證書 ${unique} · 第 1 版` });
+  await choose(page, "模板版本", `測試證書 ${unique} · 第 1 版`);
   await page.getByRole("button", { name: "貼上 CSV", exact: true }).click();
   await page
     .getByLabel("或貼上 CSV 內容")
@@ -106,9 +103,7 @@ test("芫荽模板 → 批次 PDF → 重發啟用 → 手機下載 → 重設�
     .toBe("generated");
   await page.getByRole("button", { name: "重新整理", exact: true }).click();
   await page.getByRole("button", { name: "通知收件人", exact: true }).click();
-  await page
-    .getByRole("combobox", { name: /寄件身分/ })
-    .selectOption({ index: 1 });
+  await choose(page, "寄件身分", { index: 0 });
   await page.getByRole("button", { name: "檢查發送內容", exact: true }).click();
   await page
     .getByRole("button", { name: "確認通知 2 位收件人", exact: true })

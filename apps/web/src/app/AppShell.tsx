@@ -5,6 +5,7 @@ import { findMembership, useSession } from "./session";
 import type { Membership } from "../lib/types";
 import { roleNames } from "../lib/format";
 import { Button } from "../ui/Button";
+import { Select } from "../ui/Select";
 import { Notice, Wordmark } from "../ui/feedback";
 
 const navigation = [
@@ -12,6 +13,7 @@ const navigation = [
   { to: "batches", label: "發證活動", permission: "certificates.generate" },
   { to: "deliveries", label: "郵件紀錄", permission: "mail.send" },
   { to: "audit", label: "稽核紀錄", permission: "audit.read" },
+  { to: "settings", label: "組織設定", permission: "organization.manage" },
 ] as const;
 
 type Workspace = { membership: Membership; organization: Membership["organization"]; permissions: string[] };
@@ -57,17 +59,13 @@ function Shell({ membership, children }: { membership?: Membership; children: Re
           {current && (
             <label className="org-switch">
               <span className="sr-only">目前組織</span>
-              <select
-                aria-label="目前組織"
+              <Select
+                variant="pill"
+                label="目前組織"
                 value={current.organization.id}
-                onChange={(event) => navigate(`/o/${event.target.value}/templates`)}
-              >
-                {memberships.map((m) => (
-                  <option key={m.organization.id} value={m.organization.id}>
-                    {m.organization.name}
-                  </option>
-                ))}
-              </select>
+                onChange={(id) => navigate(`/o/${id}/templates`)}
+                options={memberships.map((m) => ({ value: m.organization.id, label: m.organization.name }))}
+              />
               <span className="org-role">{roleNames[current.role.toLowerCase()] ?? current.role}</span>
             </label>
           )}
