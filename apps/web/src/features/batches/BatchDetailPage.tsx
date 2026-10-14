@@ -25,6 +25,7 @@ export function BatchDetailPage() {
   );
   const action = useAction();
   const [tab, setTab] = useState<Tab>("recipients");
+  const [mailNotice, setMailNotice] = useState<{ kind: "success" | "info"; message: string }>();
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [selection, setSelection] = useState<Set<string>>(new Set());
@@ -145,6 +146,7 @@ export function BatchDetailPage() {
         <Notice message={resource.error} />
         <Notice message={action.error} />
         <Notice message={action.success} kind="success" />
+        {mailNotice && <Notice message={mailNotice.message} kind={mailNotice.kind} />}
         {batch.cancelReason && <Notice kind="info" message={`活動已取消：${batch.cancelReason}`} />}
       </div>
 
@@ -445,8 +447,12 @@ export function BatchDetailPage() {
           mailProcessing={mailProcessing}
           mailAccepted={mailAccepted}
           mailFailures={mailFailures}
-          onSent={async () => {
-            action.setSuccess("通知工作已提交。SMTP 接受郵件後，最終投遞狀態仍可能未知。");
+          onSent={async (result) => {
+            setMailNotice(
+              result.queued
+                ? { kind: "success", message: `${result.message}。SMTP 接受郵件後，最終投遞狀態仍可能未知。` }
+                : { kind: "info", message: result.message },
+            );
             await reload();
           }}
         />

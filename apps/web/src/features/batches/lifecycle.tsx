@@ -5,7 +5,7 @@ import { useAction, usePagedResource } from '../../lib/hooks';
 import { Notice, Pagination, Status } from '../../ui/feedback';
 import { formatDate } from '../../lib/format';
 import { Button } from '../../ui/Button';
-export const actionNames: Record<string,string> = { 'certificate.expiry_changed': '調整證書期限', 'batch.created': '建立活動', 'batch.edited': '編輯活動', 'batch.cancelled': '取消活動', 'certificate.revoked': '撤銷證書', 'certificate.reissued': '重新發放證書', 'batch.generate_requested': '提交產製', 'batch.retry_failed': '重試失敗項目', 'batch.mail_requested': '提交寄送通知', 'batch.zip_downloaded': '下載證書 ZIP' };
+export const actionNames: Record<string,string> = { 'certificate.expiry_changed': '調整證書期限', 'batch.created': '建立活動', 'batch.edited': '編輯活動', 'batch.cancelled': '取消活動', 'certificate.revoked': '撤銷證書', 'certificate.reissued': '重新發放證書', 'batch.generate_requested': '提交產製', 'batch.retry_failed': '重試失敗項目', 'batch.mail_requested': '提交寄送通知', 'batch.mail_retry_requested': '重試失敗通知', 'batch.zip_downloaded': '下載證書 ZIP' };
 export function AuditDetail({ audit }: { audit: Audit }) {
   const metadata = audit.metadata as { actorEmail?: string; reason?: string } | undefined;
   return <><strong>{actionNames[audit.action] ?? audit.action}</strong><span className="cell-sub">{metadata?.actorEmail ?? audit.actorId ?? '系統'} · {formatDate(audit.createdAt)}</span>{metadata?.reason && <p>{metadata.reason}</p>}{audit.metadata != null && <details><summary>查看完整操作資料</summary><pre className="audit-json">{JSON.stringify(audit.metadata, null, 2)}</pre></details>}</>;

@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { PaperPlaneIcon } from "@radix-ui/react-icons";
+import { useState, type FormEvent } from "react";
+import { PaperPlaneIcon, ReloadIcon } from "@radix-ui/react-icons";
 import { orgPath, post } from "../../lib/api";
 import { useAction } from "../../lib/hooks";
 import type { Batch, Organization, Sender } from "../../lib/types";
@@ -7,6 +7,10 @@ import { Button } from "../../ui/Button";
 import { Notice, Status } from "../../ui/feedback";
 
 const usableSender = ["active", "verified", "enabled", "development"];
+const retryableStatuses = ["failed", "cancelled"];
+
+/** What the send and retry endpoints return; `queued` can be 0 when every recipient was skipped. */
+export type MailResult = { ok: boolean; queued: number; message: string };
 
 export function NotifyPanel({
   organization, permissions, batch, senders, eligibleCount, readyForMail, blocked, mailProcessing, mailAccepted,
@@ -22,11 +26,13 @@ export function NotifyPanel({
   mailProcessing: boolean;
   mailAccepted: number;
   mailFailures: number;
-  onSent: () => Promise<void>;
+  onSent: (result: MailResult) => Promise<void>;
 }) {
   const action = useAction();
   const [senderId, setSenderId] = useState("");
   const [confirming, setConfirming] = useState(false);
+  const [retrying, setRetrying] = useState(false);
+  const [retryReason, setRetryReason] = useState("");
   if (!permissions.includes("mail.send") || !permissions.includes("certificates.issue"))
     return <Notice kind="info" message="此角色沒有通知收件人的權限。" />;
   const enabledSenders = senders.data?.items.filter((s) => usableSender.includes(s.status.toLowerCase())) ?? [];
@@ -34,10 +40,26 @@ export function NotifyPanel({
   const rows = batch.rows;
   const send = () =>
     void action.run(async () => {
-      await post(orgPath(organization.id, `/batches/${batch.id}/send`), { senderIdentityId: senderId });
+      const result = await post<MailResult>(orgPath(organization.id, `/batches/${batch.id}/send`), {
+        senderIdentityId: senderId,
+      });
       setConfirming(false);
-      await onSent();
+      await onSent(result);
     });
+  const retryableCount =
+batch.deliveries?.filter((d) => retryableStatuses.includes(d.status)).length ?? 0;
+  const retry = (event: FormEvent) => {
+    event.preventDefault();
+    void action.run(async () => {
+      const result = await post<MailResult>(orgPath(organization.id, `/batches/${batch.id}/deliveries/retry`), {
+        senderIdentityId: senderId,
+        reason: retryReason.trim(),
+      });
+      setRetrying(false);
+      setRetryReason("");
+      await onSent(result);
+    });
+  };
   return (
     <section className="panel stack notify" aria-labelledby="notify-heading">
       <div className="section-title">
@@ -61,6 +83,7 @@ export function NotifyPanel({
             onChange={(e) => {
               setSenderId(e.target.value);
               setConfirming(false);
+              setRetrying(false);
             }}
             disabled={senders.loading || action.busy}
           >
@@ -125,6 +148,47 @@ export function NotifyPanel({
               {action.busy ? "提交中…" : `確認通知 ${eligibleCount} 位收件人`}
             </Button>
           </div>
+        </div>
+      )}
+      {retryableCount > 0 && !confirming && (
+        <div className="send-confirm">
+          <div className="toolbar">
+            <div>
+              <h3>重試失敗通知</h3>
+              <p className="field-help">
+                {retryableCount} 封通知先前失敗或被取消。重試只會重新排入這些郵件；結果不確定的郵件請先以 Message-ID 人工核對。
+              </p>
+            </div>
+            {!retrying && (
+              <Button variant="quiet" disabled={!sender || blocked || action.busy} onClick={() => setRetrying(true)}>
+                <ReloadIcon />
+                重試失敗通知
+              </Button>
+            )}
+          </div>
+          {!sender && <p className="field-help">請先在上方選擇寄件身分。</p>}
+          {retrying && sender && (
+            <form className="stack" onSubmit={retry}>
+              <label className="field">
+                重試原因
+                <textarea
+                  value={retryReason}
+                  maxLength={500}
+                  required
+                  onChange={(e) => setRetryReason(e.target.value)}
+                  placeholder="例如：SMTP 暫時無法連線，已確認恢復"
+                />
+              </label>
+              <div className="btn-row">
+                <Button variant="quiet" onClick={() => setRetrying(false)} disabled={action.busy}>
+                  返回
+                </Button>
+                <Button type="submit" disabled={action.busy || !retryReason.trim()}>
+                  {action.busy ? "提交中…" : `確認重試 ${retryableCount} 封通知`}
+                </Button>
+              </div>
+            </form>
+          )}
         </div>
       )}
       <div className="notification-summary">
