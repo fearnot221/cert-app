@@ -9,7 +9,7 @@ import type { Template } from "../../lib/types";
 import { useWorkspace } from "../../app/AppShell";
 import { Button } from "../../ui/Button";
 import { Empty, Loading, LoadError, Notice, PageHeader, Pagination, Status } from "../../ui/feedback";
-import { previewData } from "./previewData";
+import { previewDataFor } from "./previewData";
 import { TemplateThumb } from "./TemplateThumb";
 
 export function TemplatesPage() {
@@ -100,7 +100,7 @@ export function TemplatesPage() {
                 <TemplateThumb widthMm={template.document.widthMm} heightMm={template.document.heightMm}>
                   <CertificateView
                       document={template.document}
-                      data={{ ...previewData, organization_name: organization.name }}
+                      data={previewDataFor(template.document, organization.name)}
                       assetUrls={
                         template.document.backgroundAssetId
                           ? {

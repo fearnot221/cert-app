@@ -4,6 +4,7 @@ import { orgPath, post } from "../../lib/api";
 import { useAction } from "../../lib/hooks";
 import type { Batch, Organization, Sender } from "../../lib/types";
 import { Button } from "../../ui/Button";
+import { Select } from "../../ui/Select";
 import { Notice, Status } from "../../ui/feedback";
 
 const usableSender = ["active", "verified", "enabled", "development"];
@@ -78,22 +79,21 @@ batch.deliveries?.filter((d) => retryableStatuses.includes(d.status)).length ?? 
       <div className="filters">
         <label className="field filters-grow">
           寄件身分
-          <select
+          <Select
+            label="寄件身分"
             value={senderId}
-            onChange={(e) => {
-              setSenderId(e.target.value);
+            onChange={(value) => {
+              setSenderId(value);
               setConfirming(false);
               setRetrying(false);
             }}
             disabled={senders.loading || action.busy}
-          >
-            <option value="">{senders.loading ? "載入中…" : "選擇可用寄件身分"}</option>
-            {enabledSenders.map((s) => (
-              <option value={s.id} key={s.id}>
-                {s.displayName} &lt;{s.fromAddress}&gt;{s.status === "development" ? "（Mailpit 測試）" : ""}
-              </option>
-            ))}
-          </select>
+            placeholder={senders.loading ? "載入中…" : "選擇可用寄件身分"}
+            options={enabledSenders.map((s) => ({
+              value: s.id,
+              label: `${s.displayName} <${s.fromAddress}>${s.status === "development" ? "（Mailpit 測試）" : ""}`,
+            }))}
+          />
         </label>
         <Button disabled={!readyForMail || !sender || blocked || action.busy} onClick={() => setConfirming(true)}>
           <PaperPlaneIcon />

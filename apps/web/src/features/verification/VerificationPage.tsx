@@ -146,6 +146,10 @@ export function VerificationPage() {
       {result && state && !preview && (
         <section className="verify-record" aria-label="發證紀錄">
           <dl className="verify-facts">
+            <div className="verify-serial">
+              <dt>證書編號</dt>
+              <dd className="tabular">{result.number}</dd>
+            </div>
             <div>
               <dt>發證單位</dt>
               <dd>{result.organization}</dd>
@@ -157,10 +161,6 @@ export function VerificationPage() {
             <div>
               <dt>持有人（遮罩）</dt>
               <dd>{result.recipientName}</dd>
-            </div>
-            <div>
-              <dt>證書編號</dt>
-              <dd className="tabular">{result.number}</dd>
             </div>
             <div>
               <dt>發證日期</dt>

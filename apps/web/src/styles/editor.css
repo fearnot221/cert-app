@@ -1,8 +1,20 @@
 /* ---------- Template editor: toolbar, three panes, the sheet ---------- */
+/* The editor fills exactly what the app bar leaves, whatever height the bar wraps to,
+   so the page itself never scrolls by a few pixels behind the panes. */
+.app:has(.editor) {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+}
+.app:has(.editor) > .app-main {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+}
 .editor {
   display: flex;
   flex-direction: column;
-  height: calc(100dvh - 68px);
+  height: 100%;
   min-height: 560px;
 }
 .editor-toolbar {
@@ -52,14 +64,38 @@
   flex-wrap: wrap;
   gap: 8px;
 }
-.editor-feedback:has(.notice) {
-  padding: 12px var(--gutter) 0;
+/* Messages float over the top of the canvas instead of pushing the three panes down,
+   so saving or uploading never makes the workspace jump. */
+.canvas-workspace {
+  position: relative;
+}
+.editor-feedback {
+  position: absolute;
+  z-index: 15;
+  top: 12px;
+  left: 50%;
+  display: grid;
+  gap: 8px;
+  width: min(680px, calc(100% - 32px));
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+.editor-feedback .notice {
+  pointer-events: auto;
+  box-shadow: 0 12px 32px rgb(30 28 27 / 0.14); /* taste-skill-ignore: a message floating over the canvas */
+  animation: notice-drop 220ms var(--ease-out);
+}
+@keyframes notice-drop {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
 }
 .editor-layout {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: 260px minmax(320px, 1fr) 300px;
+  grid-template-columns: 280px minmax(320px, 1fr) 300px;
 }
 .editor-left,
 .editor-right {
@@ -90,16 +126,12 @@
   color: var(--color-muted);
 }
 .editor-section .field input:not([type="checkbox"], [type="radio"], [type="file"], [type="color"]),
-.editor-section .field select,
+.editor-section .field .select-trigger-field,
 .editor-section .field textarea {
   min-height: 40px;
   padding: 8px 12px;
   border-radius: 12px;
   font-size: 15px;
-}
-.editor-section .field select {
-  padding-right: 34px;
-  background-position: right 13px center;
 }
 .editor-section .field input[type="color"] {
   width: 100%;
@@ -206,11 +238,6 @@
 }
 .layer-item:active {
   transform: scale(0.98);
-}
-@media (pointer: coarse) {
-  .zoom-control select {
-    min-height: 44px;
-  }
 }
 .layer-item.selected {
   background: var(--color-issue-soft);
@@ -319,14 +346,8 @@
   border-radius: var(--radius-pill);
   background: var(--color-ground);
 }
-.zoom-control select {
-  min-height: 32px;
-  width: 76px;
-  padding: 0 6px;
-  border: 0;
-  background: transparent;
-  font-size: 14px;
-  text-align: center;
+.zoom-control .select-trigger {
+  min-width: 76px;
 }
 .property-grid {
   display: grid;
@@ -338,11 +359,15 @@
 }
 
 @media (max-width: 1180px) {
+  .app:has(.editor) {
+    display: block;
+    height: auto;
+  }
   .editor {
     height: auto;
   }
   .editor-layout {
-    grid-template-columns: 220px minmax(0, 1fr);
+    grid-template-columns: 250px minmax(0, 1fr);
   }
   .editor-left,
   .editor-right {
@@ -350,6 +375,12 @@
   }
   .canvas-scroll {
     min-height: 520px;
+  }
+  /* The field list can be long; the sheet stays in view beside it instead of stretching. */
+  .canvas-workspace {
+    align-self: start;
+    position: sticky;
+    top: 0;
   }
   .editor-right {
     grid-column: 1 / -1;
@@ -369,6 +400,11 @@
     display: flex;
     flex-direction: column;
   }
+  /* On a phone the sheet comes first; the panels follow it. */
+  .canvas-workspace {
+    order: -1;
+    position: static;
+  }
   .layer-list {
     flex-direction: row;
     overflow-x: auto;
@@ -382,5 +418,154 @@
   }
   .editor-right {
     display: block;
+  }
+}
+
+/* ---------- Dynamic fields: built-ins first, then the designer's own ---------- */
+.fields-section {
+  padding-inline: 12px;
+}
+.fields-section > h2,
+.fields-section > .field-group-title,
+.fields-section > .field-help {
+  padding-inline: 8px;
+}
+.fields-section > .field-form,
+.fields-section > .btn {
+  margin-inline: 8px;
+}
+.field-group-title {
+  margin-top: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-muted);
+}
+.field-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.field-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.field-insert {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 7px 10px;
+  border-radius: 12px;
+  text-align: left;
+  transition:
+    background-color 140ms var(--ease-out),
+    transform 120ms var(--ease-out);
+}
+.field-insert > svg {
+  width: 15px;
+  height: 15px;
+  color: var(--color-muted);
+  opacity: 0;
+  transition: opacity 140ms var(--ease-out);
+}
+.field-row-text {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+.field-row-name {
+  font-size: 14px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.field-row-meta {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--color-muted);
+}
+/* The serial number carries the issuing seal colour, so the field that numbers certificates reads as one. */
+.field-row.is-serial .field-row-name::before {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: var(--color-issue-dot);
+  vertical-align: 1px;
+}
+@media (hover: hover) and (pointer: fine) {
+  .field-insert:hover:not(:disabled) {
+    background: var(--color-surface);
+  }
+  .field-insert:hover:not(:disabled) > svg {
+    opacity: 1;
+  }
+}
+.field-insert:focus-visible > svg {
+  opacity: 1;
+}
+.field-insert:active:not(:disabled) {
+  transform: scale(0.98);
+}
+.field-insert:disabled {
+  cursor: default;
+}
+.field-edit {
+  flex: none;
+}
+.field-form {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border-radius: 20px;
+  background: var(--color-surface);
+  animation: field-form-in 200ms var(--ease-out);
+}
+.field-form .field input:not([type="checkbox"]) {
+  background: var(--color-ground);
+}
+.field-form .check {
+  font-size: 14px;
+}
+@keyframes field-form-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+.field-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.field-remove {
+  margin-right: auto;
+  color: var(--color-danger);
+}
+.field-error {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-danger-ink);
+}
+@media (prefers-reduced-motion: reduce) {
+  .editor-feedback .notice {
+    animation-name: fade-in;
+  }
+  .field-form {
+    animation-name: fade-in;
+  }
+  .field-insert:active:not(:disabled) {
+    transform: none;
   }
 }

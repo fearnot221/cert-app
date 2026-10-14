@@ -132,6 +132,189 @@ select.input {
   background-repeat: no-repeat;
   background-position: right 18px center;
 }
+/* ---------- Select: our own list, so the open menu matches the site instead of the OS ---------- */
+.select-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 140ms var(--ease-out),
+    background-color 160ms var(--ease-out),
+    transform 120ms var(--ease-out);
+}
+.select-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.select-trigger[data-placeholder] .select-value {
+  color: var(--color-muted);
+}
+.select-chevron {
+  width: 16px;
+  height: 16px;
+  color: var(--color-ink);
+  transition: transform 200ms var(--ease-out);
+}
+.select-trigger[aria-expanded="true"] .select-chevron {
+  transform: rotate(180deg);
+}
+.select-trigger-field {
+  width: 100%;
+  min-height: 48px;
+  padding: 11px 16px;
+  border: 1px solid var(--color-line-strong); /* taste-skill-ignore: a form field keeps its boundary, like the inputs beside it */
+  border-radius: var(--radius-control);
+  background: var(--color-ground);
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1.4;
+}
+.select-trigger-field:hover:not(:disabled),
+.select-trigger-field[aria-expanded="true"] {
+  border-color: var(--color-ink);
+}
+.select-trigger-field:focus-visible {
+  outline: 2px solid var(--color-ink);
+  outline-offset: 1px;
+  border-color: var(--color-ink);
+}
+.select-trigger-pill {
+  min-height: 40px;
+  padding: 0 14px 0 16px;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  font-size: 14px;
+  font-weight: 500;
+}
+.select-trigger-pill:hover:not(:disabled),
+.select-trigger-pill[aria-expanded="true"] {
+  background: var(--color-surface-strong);
+}
+.select-trigger-pill:active:not(:disabled) {
+  transform: scale(0.98);
+}
+.select-trigger-bare {
+  min-height: 32px;
+  padding: 0 8px;
+  border-radius: var(--radius-pill);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+.select-trigger-bare:hover:not(:disabled),
+.select-trigger-bare[aria-expanded="true"] {
+  background: var(--color-surface-strong);
+}
+.select-trigger-bare .select-chevron {
+  width: 14px;
+  height: 14px;
+}
+.select-trigger:disabled {
+  background: var(--color-surface);
+  color: var(--color-muted);
+  cursor: not-allowed;
+}
+.select-trigger:disabled .select-chevron {
+  color: var(--color-ink-disabled);
+}
+@media (pointer: coarse) {
+  .select-trigger-pill,
+  .select-trigger-bare {
+    min-height: 44px;
+  }
+}
+/* The open list floats over the page, so it is one of the few things allowed a shadow. */
+.select-list {
+  position: fixed;
+  z-index: 60;
+  max-width: min(420px, calc(100vw - 24px));
+  margin: 0;
+  padding: 6px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  list-style: none;
+  border-radius: 18px;
+  background: var(--color-ground);
+  box-shadow: 0 0 0 1px var(--color-line), 0 18px 48px rgb(30 28 27 / 0.16); /* taste-skill-ignore: an open menu floats over the page */
+  transform-origin: top center;
+  animation: select-in 160ms var(--ease-out);
+  scrollbar-width: thin;
+}
+.select-list[data-side="top"] {
+  transform-origin: bottom center;
+  animation-name: select-in-up;
+}
+@keyframes select-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+}
+@keyframes select-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+}
+.select-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 40px;
+  padding: 8px 14px;
+  border-radius: 12px;
+  font-size: 15px;
+  line-height: 1.35;
+  cursor: pointer;
+  user-select: none;
+}
+.select-option.is-active {
+  background: var(--color-surface);
+}
+.select-option[aria-selected="true"] {
+  font-weight: 700;
+}
+/* Every option keeps room for the dot, so the selected one does not shift its text. */
+.select-option::before {
+  content: "";
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: transparent;
+}
+.select-option[aria-selected="true"]::before {
+  background: var(--color-issue-dot);
+}
+.select-option > span {
+  flex: 1;
+  min-width: 0;
+}
+.select-option[aria-disabled="true"] {
+  color: var(--color-ink-disabled);
+  cursor: not-allowed;
+}
+@media (pointer: coarse) {
+  .select-option {
+    min-height: 44px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .select-list,
+  .select-list[data-side="top"] {
+    animation-name: fade-in;
+  }
+  .select-chevron {
+    transition: none;
+  }
+}
+
 .field textarea {
   resize: vertical;
   line-height: 1.6;

@@ -7,7 +7,6 @@ import {
 } from "react";
 import {
   ArrowLeftIcon,
-  PlusIcon,
   TextIcon,
   ImageIcon,
   CopyIcon,
@@ -18,7 +17,7 @@ import {
 } from "@radix-ui/react-icons";
 import { CertificateView } from "@cert/renderer";
 import { api, ApiError, orgPath, post } from "../../lib/api";
-import { useAction } from "../../lib/hooks";
+import { useAction, useResource } from "../../lib/hooks";
 import type {
   Organization,
   Template,
@@ -27,9 +26,27 @@ import type {
 } from "../../lib/types";
 import { Notice, Status } from "../../ui/feedback";
 import { Button } from "../../ui/Button";
-import { previewData } from "./previewData";
+import { Select } from "../../ui/Select";
+import { previewDataFor } from "./previewData";
+import { FieldsPanel } from "./FieldsPanel";
+import { withBuiltinFields } from "@cert/contracts";
 
 const MM = 96 / 25.4;
+/** The first vertical band of the given height, from the middle down, that no text box occupies. */
+function freeBand(document: TemplateDocument, height: number) {
+  const max = document.heightMm - height - 4;
+  const taken = (y: number) =>
+    document.elements.some((element) => y < element.y + element.height && y + height > element.y);
+  for (let y = Math.round(document.heightMm / 2 - height / 2); y <= max; y += 6) if (!taken(y)) return y;
+  for (let y = Math.round(document.heightMm / 2 - height / 2); y >= 4; y -= 6) if (!taken(y)) return y;
+  return Math.round(document.heightMm / 2 - height / 2);
+}
+/** Layer names read in the designer's words: {{field_1}} shows as 〔課程時數〕. */
+const layerName = (text: string, fields: TemplateDocument["fields"]) =>
+  text.replace(/{{\s*([a-z][a-z0-9_]*)\s*}}/g, (all, key: string) => {
+    const field = fields.find((f) => f.key === key);
+    return field ? `〔${field.label}〕` : all;
+  }) || "空白文字";
 export function TemplateEditor({
   organization,
   permissions,
@@ -43,7 +60,10 @@ export function TemplateEditor({
   onDirty: (dirty: boolean) => void;
   onClose: () => void;
 }) {
-  const [document, setDocument] = useState<TemplateDocument>(template.document);
+  // Older templates predate some built-in fields (such as the serial number); add them on open.
+  const [document, setDocument] = useState<TemplateDocument>(() => withBuiltinFields(template.document));
+  const serial = useResource<{ nextNumber: string }>(orgPath(organization.id, "/settings/serial"));
+  const sampleData = previewDataFor(document, organization.name, serial.data?.nextNumber);
   const [name, setName] = useState(template.name);
   const [revision, setRevision] = useState(template.revision);
   const [dirty, setDirty] = useState(false);
@@ -55,7 +75,6 @@ export function TemplateEditor({
   const [layoutErrors, setLayoutErrors] = useState<string[]>([]);
   const [conflict, setConflict] = useState(false);
   const [qualityWarning, setQualityWarning] = useState("");
-  const [addField, setAddField] = useState("recipient_name");
   const action = useAction();
   const canvasArea = useRef<HTMLDivElement>(null);
   const drag = useRef<{
@@ -188,8 +207,9 @@ export function TemplateEditor({
     const element: TextElement = {
       id,
       type: "text",
-      x: 40,
-      y: 40,
+      // New text lands centred, on the first free band from the middle of the sheet down.
+      x: Math.round((document.widthMm - 120) / 2),
+      y: freeBand(document, 20),
       width: 120,
       height: 20,
       rotation: 0,
@@ -259,6 +279,8 @@ export function TemplateEditor({
         mimeType: string;
         width: number;
         height: number;
+        source?: "pdf";
+        pdfPages?: number;
       }>(orgPath(organization.id, "/assets"), { method: "POST", body });
       changeDocument((current) => ({
         ...current,
@@ -273,7 +295,11 @@ export function TemplateEditor({
           ? `背景約 ${Math.round(dpi)} DPI，列印可能不夠清晰。建議使用 150 DPI 以上圖片。`
           : "",
       );
-      action.setSuccess("背景已上傳，請儲存草稿。");
+      action.setSuccess(
+        asset.source === "pdf"
+          ? `PDF 已設為背景${(asset.pdfPages ?? 1) > 1 ? `（共 ${asset.pdfPages} 頁，使用第 1 頁）` : ""}，證書會保留原本的向量畫質。請儲存草稿。`
+          : "背景已上傳，請儲存草稿。",
+      );
     });
   };
   return (
@@ -331,17 +357,6 @@ export function TemplateEditor({
           )}
         </div>
       </header>
-      <div className="editor-feedback">
-        <Notice message={action.error} />
-        <Notice message={action.success} kind="success" />
-        {conflict && (
-          <Notice message="另一位編輯者已儲存更新。本次變更沒有覆蓋伺服器版本；請保留所需內容，返回列表重新開啟最新草稿後再編輯。" />
-        )}
-        <Notice message={qualityWarning} kind="info" />
-        {layoutErrors.length > 0 && (
-          <Notice message={`版面檢查未通過：${layoutErrors.join("；")}`} />
-        )}
-      </div>
       <div className="editor-layout">
         <aside className="editor-left">
           <section className="editor-section">
@@ -355,29 +370,13 @@ export function TemplateEditor({
               <TextIcon />
               固定文字
             </Button>
-            <label className="field">
-              動態欄位
-              <select
-                value={addField}
-                onChange={(e) => setAddField(e.target.value)}
-              >
-                {document.fields.map((field) => (
-                  <option key={field.key} value={field.key}>
-                    {field.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <Button
-              variant="quiet"
-              className="btn-block"
-              disabled={!canWrite}
-              onClick={() => addText(addField)}
-            >
-              <PlusIcon />
-              加入動態文字
-            </Button>
           </section>
+          <FieldsPanel
+            document={document}
+            canWrite={canWrite}
+            onInsert={(key) => addText(key)}
+            onChange={changeDocument}
+          />
           <section className="editor-section">
             <h2>背景圖片</h2>
             <label
@@ -389,7 +388,7 @@ export function TemplateEditor({
               </span>
               <input
                 type="file"
-                accept="image/png,image/jpeg,image/webp"
+                accept="application/pdf,image/png,image/jpeg,image/webp"
                 disabled={!canWrite || action.busy}
                 onChange={(e) => {
                   const file = e.target.files?.[0];
@@ -399,7 +398,7 @@ export function TemplateEditor({
               />
             </label>
             <p className="field-help">
-              PNG、JPG、WebP。背景會填滿整張紙，建議使用相同長寬比例。
+              PDF、PNG、JPG、WebP。PDF 使用第一頁；背景會填滿整張紙，建議使用相同長寬比例。
             </p>
             {document.backgroundAssetId && canWrite && (
               <Button
@@ -429,7 +428,7 @@ export function TemplateEditor({
                   onClick={() => setSelectedId(element.id)}
                 >
                   <TextIcon />
-                  <span>{element.text || "空白文字"}</span>
+                  <span>{layerName(element.text, document.fields)}</span>
                   <small>{document.elements.length - index}</small>
                 </button>
               ))}
@@ -446,6 +445,17 @@ export function TemplateEditor({
           aria-label="證書畫布"
           ref={canvasArea}
         >
+          <div className="editor-feedback">
+            <Notice message={action.error} />
+            <Notice message={action.success} kind="success" />
+            {conflict && (
+              <Notice message="另一位編輯者已儲存更新。本次變更沒有覆蓋伺服器版本；請保留所需內容，返回列表重新開啟最新草稿後再編輯。" />
+            )}
+            <Notice message={qualityWarning} kind="info" />
+            {layoutErrors.length > 0 && (
+              <Notice message={`版面檢查未通過：${layoutErrors.join("；")}`} />
+            )}
+          </div>
           <div className="canvas-topline">
             <span>
               {document.widthMm} × {document.heightMm} mm
@@ -471,10 +481,7 @@ export function TemplateEditor({
               >
                 <CertificateView
                   document={document}
-                  data={{
-                    ...previewData,
-                    organization_name: organization.name,
-                  }}
+                  data={sampleData}
                   assetUrls={
                     document.backgroundAssetId
                       ? {
@@ -560,32 +567,15 @@ export function TemplateEditor({
             <span>拖曳文字移動 · 方向鍵微調 1 mm</span>
             <div className="zoom-control">
               <MagnifyingGlassIcon />
-              <label className="sr-only" htmlFor="zoom">
-                畫布縮放
-              </label>
-              <select
-                id="zoom"
-                value={Math.round(scale * 100)}
-                onChange={(e) => setScale(Number(e.target.value) / 100)}
-              >
-                {[
-                  ...new Set([
-                    25,
-                    40,
-                    50,
-                    60,
-                    75,
-                    100,
-                    Math.round(scale * 100),
-                  ]),
-                ]
+              <Select
+                variant="bare"
+                label="畫布縮放"
+                value={String(Math.round(scale * 100))}
+                onChange={(value) => setScale(Number(value) / 100)}
+                options={[...new Set([25, 40, 50, 60, 75, 100, Math.round(scale * 100)])]
                   .sort((a, b) => a - b)
-                  .map((value) => (
-                    <option key={value} value={value}>
-                      {value}%
-                    </option>
-                  ))}
-              </select>
+                  .map((value) => ({ value: String(value), label: `${value}%` }))}
+              />
               <Button size="sm" variant="ghost" onClick={fit}>
                 適合畫面
               </Button>
@@ -597,7 +587,8 @@ export function TemplateEditor({
             <h2>頁面設定</h2>
             <label className="field">
               紙張尺寸
-              <select
+              <Select
+                label="紙張尺寸"
                 disabled={!canWrite}
                 value={
                   document.widthMm === 297 && document.heightMm === 210
@@ -606,18 +597,16 @@ export function TemplateEditor({
                       ? "portrait"
                       : "custom"
                 }
-                onChange={(e) => {
-                  if (e.target.value !== "custom")
-                    resizePage(
-                      e.target.value === "landscape" ? 297 : 210,
-                      e.target.value === "landscape" ? 210 : 297,
-                    );
+                onChange={(value) => {
+                  if (value !== "custom")
+                    resizePage(value === "landscape" ? 297 : 210, value === "landscape" ? 210 : 297);
                 }}
-              >
-                <option value="landscape">A4 橫式</option>
-                <option value="portrait">A4 直式</option>
-                <option value="custom">自訂尺寸</option>
-              </select>
+                options={[
+                  { value: "landscape", label: "A4 橫式" },
+                  { value: "portrait", label: "A4 直式" },
+                  { value: "custom", label: "自訂尺寸" },
+                ]}
+              />
             </label>
             <div className="property-grid">
               <NumberField
@@ -708,36 +697,38 @@ export function TemplateEditor({
                 </div>
                 <label className="field">
                   字型
-                  <select
+                  <Select
+                    label="字型"
                     value={selected.fontFamily}
-                    onChange={(e) =>
+                    onChange={(value) =>
                       updateElement(selected.id, {
-                        fontFamily: e.target.value as TextElement["fontFamily"],
+                        fontFamily: value as TextElement["fontFamily"],
                         fontWeight: 400,
                       })
                     }
-                  >
-                    <option>Noto Sans TC</option>
-                    <option value="Iansui">芫荽 Iansui</option>
-                  </select>
+                    options={[
+                      { value: "Noto Sans TC", label: "Noto Sans TC" },
+                      { value: "Iansui", label: "芫荽 Iansui" },
+                    ]}
+                  />
                 </label>
                 <p className="field-help">開源字型 · 網頁與 PDF 共用同一版本</p>
                 <div className="property-grid">
                   <label className="field">
                     字重
-                    <select
-                      value={selected.fontWeight}
-                      onChange={(e) =>
+                    <Select
+                      label="字重"
+                      value={String(selected.fontWeight)}
+                      onChange={(value) =>
                         updateElement(selected.id, {
-                          fontWeight: Number(e.target.value) as 400 | 700,
+                          fontWeight: Number(value) as 400 | 700,
                         })
                       }
-                    >
-                      <option value={400}>標準 400</option>
-                      {selected.fontFamily !== "Iansui" && (
-                        <option value={700}>粗體 700</option>
-                      )}
-                    </select>
+                      options={[
+                        { value: "400", label: "標準 400" },
+                        ...(selected.fontFamily !== "Iansui" ? [{ value: "700", label: "粗體 700" }] : []),
+                      ]}
+                    />
                   </label>
                   <label className="field">
                     文字顏色
@@ -752,18 +743,20 @@ export function TemplateEditor({
                 </div>
                 <label className="field">
                   文字對齊
-                  <select
+                  <Select
+                    label="文字對齊"
                     value={selected.align}
-                    onChange={(e) =>
+                    onChange={(value) =>
                       updateElement(selected.id, {
-                        align: e.target.value as TextElement["align"],
+                        align: value as TextElement["align"],
                       })
                     }
-                  >
-                    <option value="left">靠左</option>
-                    <option value="center">置中</option>
-                    <option value="right">靠右</option>
-                  </select>
+                    options={[
+                      { value: "left", label: "靠左" },
+                      { value: "center", label: "置中" },
+                      { value: "right", label: "靠右" },
+                    ]}
+                  />
                 </label>
                 <NumberField
                   label="自動縮字下限 pt"

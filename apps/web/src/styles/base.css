@@ -8,6 +8,17 @@
     font-synthesis: none;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
+  }
+  /* Desktop scrollbars take up width. Reserve it on every page, so moving between a short and a
+     long page never slides the centred layout sideways. Touch screens use overlay scrollbars. */
+  @media (min-width: 721px) and (hover: hover) and (pointer: fine) {
+    html {
+      scrollbar-gutter: stable;
+    }
+  }
+  /* Smooth scrolling only for the landing page's in-page links. On the app it would animate the
+     jump to the top on every route change. */
+  html:has(.landing) {
     scroll-behavior: smooth;
   }
   body {
@@ -114,7 +125,8 @@
 
 /* Reduced motion keeps colour and opacity feedback but drops travel, scale and spin. */
 @media (prefers-reduced-motion: reduce) {
-  html {
+  html,
+  html:has(.landing) {
     scroll-behavior: auto;
   }
   .btn:active:not(:disabled),

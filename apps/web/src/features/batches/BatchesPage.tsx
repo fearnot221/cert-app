@@ -7,6 +7,7 @@ import { formatDate } from "../../lib/format";
 import type { Batch } from "../../lib/types";
 import { useWorkspace } from "../../app/AppShell";
 import { Button } from "../../ui/Button";
+import { Select } from "../../ui/Select";
 import { Empty, Loading, LoadError, PageHeader, Pagination, Status } from "../../ui/feedback";
 
 const nextStep: Record<string, string> = { failed: "處理失敗項目", generated: "下載與通知", cancelled: "查看紀錄" };
@@ -56,14 +57,19 @@ export function BatchesPage() {
         </label>
         <label className="field">
           活動狀態
-          <select value={status} onChange={(e) => setStatus(e.target.value)}>
-            <option value="">全部狀態</option>
-            <option value="validated">待產製</option>
-            <option value="generating">產製中</option>
-            <option value="generated">已產製</option>
-            <option value="cancelled">已取消</option>
-            <option value="failed">需要處理</option>
-          </select>
+          <Select
+            label="活動狀態"
+            value={status}
+            onChange={setStatus}
+            options={[
+              { value: "", label: "全部狀態" },
+              { value: "validated", label: "待產製" },
+              { value: "generating", label: "產製中" },
+              { value: "generated", label: "已產製" },
+              { value: "cancelled", label: "已取消" },
+              { value: "failed", label: "需要處理" },
+            ]}
+          />
         </label>
       </div>
       {resource.pending ? (

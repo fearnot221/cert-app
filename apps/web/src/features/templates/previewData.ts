@@ -1,13 +1,22 @@
+import type { TemplateDocument } from "../../lib/types";
+
+/** Sample values for the canvas and thumbnails. Real certificates use the imported list instead. */
 export const previewData: Record<string, string> = {
   recipient_name: "王小明",
   recipient_email: "recipient@example.org",
   organization_name: "發證組織",
   event_name: "專業培訓課程",
-  course_name: "專業培訓課程",
   issue_date: "2026-10-15",
-  start_date: "2026-10-01",
-  end_date: "2026-10-15",
-  hours: "12",
-  certificate_number: "PREVIEW-0001",
-  custom_field: "示範內容",
+  certificate_number: "CERT-000001",
 };
+
+const sampleByType = { text: "", date: "2026-10-15", number: "12", email: "name@example.org" } as const;
+
+/** Preview values for one template: the built-ins above, plus a sample for each custom field. */
+export function previewDataFor(document: TemplateDocument, organizationName: string, nextNumber?: string) {
+  const data: Record<string, string> = { ...previewData, organization_name: organizationName };
+  if (nextNumber) data.certificate_number = nextNumber;
+  for (const field of document.fields)
+    if (!(field.key in data)) data[field.key] = sampleByType[field.type] || field.label;
+  return data;
+}

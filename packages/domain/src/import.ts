@@ -82,7 +82,8 @@ export function validateImportRows(
         err(field.key, "日期需為有效 YYYY-MM-DD");
     }
     for (const key of placeholders)
-      if (!system.has(key) && !data[key]) err(key, "缺少模板欄位");
+      if (!system.has(key) && !data[key] && !errors.some((e) => e.field === key))
+        err(key, "缺少模板欄位");
     const signature = JSON.stringify(
       Object.keys(data)
         .sort()

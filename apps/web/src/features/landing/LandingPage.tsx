@@ -32,8 +32,8 @@ const moments: { clause: ReactNode; data: Record<string, string>; tag?: string; 
 
 const points: { title: string; body: string }[][] = [
   [
-    { title: "不可變的模板版本", body: "發布後鎖定版本，之後修改只影響草稿，已發證書保持原樣。" },
-    { title: "Excel 與 CSV 名單", body: "沿用自己的欄位名稱，系統自動對應並保留原始列號。" },
+    { title: "不可變的模板版本", body: "PDF 或圖片都能當背景；發布後鎖定版本，已發證書保持原樣。" },
+    { title: "自訂欄位與流水號", body: "時數、成績都能設成欄位，從 Excel 對應；每張證書依組織規則自動編號。" },
     { title: "產製前先看樣張", body: "每位收件人都能預覽伺服器產出的 PDF，確認字型與版面。" },
   ],
   [

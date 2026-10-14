@@ -12,6 +12,7 @@ import { BatchesPage } from "../features/batches/BatchesPage";
 import { CreateBatchPage } from "../features/batches/CreateBatchPage";
 import { BatchDetailPage } from "../features/batches/BatchDetailPage";
 import { RecordsPage } from "../features/records/RecordsPage";
+import { SettingsPage } from "../features/settings/SettingsPage";
 
 function Root() {
   return (
@@ -103,6 +104,7 @@ export const router = createBrowserRouter([
               { path: "batches/:batchId", element: <BatchDetailPage /> },
               { path: "deliveries", element: <RecordsPage kind="deliveries" /> },
               { path: "audit", element: <RecordsPage kind="audit" /> },
+              { path: "settings", element: <SettingsPage /> },
             ],
           },
         ],

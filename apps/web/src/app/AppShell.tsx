@@ -1,10 +1,11 @@
-import { createContext, useContext, useState, type ReactNode } from "react";
-import { Navigate, NavLink, Outlet, useMatches, useNavigate, useParams } from "react-router";
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { Navigate, NavLink, Outlet, useLocation, useMatches, useNavigate, useParams } from "react-router";
 import { ExitIcon } from "@radix-ui/react-icons";
 import { findMembership, useSession } from "./session";
 import type { Membership } from "../lib/types";
 import { roleNames } from "../lib/format";
 import { Button } from "../ui/Button";
+import { Select } from "../ui/Select";
 import { Notice, Wordmark } from "../ui/feedback";
 
 const navigation = [
@@ -12,6 +13,7 @@ const navigation = [
   { to: "batches", label: "發證活動", permission: "certificates.generate" },
   { to: "deliveries", label: "郵件紀錄", permission: "mail.send" },
   { to: "audit", label: "稽核紀錄", permission: "audit.read" },
+  { to: "settings", label: "組織設定", permission: "organization.manage" },
 ] as const;
 
 type Workspace = { membership: Membership; organization: Membership["organization"]; permissions: string[] };
@@ -30,6 +32,17 @@ function Shell({ membership, children }: { membership?: Membership; children: Re
   const { session, logout } = useSession();
   const navigate = useNavigate();
   const [error, setError] = useState("");
+  const nav = useRef<HTMLElement>(null);
+  const { pathname } = useLocation();
+  // On narrow screens the section links scroll sideways; keep the current one in view.
+  useEffect(() => {
+    const active = nav.current?.querySelector<HTMLElement>("a.active");
+    const bar = nav.current;
+    if (!active || !bar || bar.scrollWidth <= bar.clientWidth) return;
+    const a = active.getBoundingClientRect();
+    const b = bar.getBoundingClientRect();
+    bar.scrollLeft += a.left - b.left - (b.width - a.width) / 2;
+  }, [pathname]);
   const wide = useMatches().some((match) => (match.handle as RouteHandle | undefined)?.wide);
   const memberships = session?.memberships ?? [];
   const current = membership ?? memberships[0];
@@ -57,22 +70,18 @@ function Shell({ membership, children }: { membership?: Membership; children: Re
           {current && (
             <label className="org-switch">
               <span className="sr-only">目前組織</span>
-              <select
-                aria-label="目前組織"
+              <Select
+                variant="pill"
+                label="目前組織"
                 value={current.organization.id}
-                onChange={(event) => navigate(`/o/${event.target.value}/templates`)}
-              >
-                {memberships.map((m) => (
-                  <option key={m.organization.id} value={m.organization.id}>
-                    {m.organization.name}
-                  </option>
-                ))}
-              </select>
+                onChange={(id) => navigate(`/o/${id}/templates`)}
+                options={memberships.map((m) => ({ value: m.organization.id, label: m.organization.name }))}
+              />
               <span className="org-role">{roleNames[current.role.toLowerCase()] ?? current.role}</span>
             </label>
           )}
           {current && (
-            <nav className="app-nav" aria-label="主要導覽">
+            <nav className="app-nav" aria-label="主要導覽" ref={nav}>
               {sections.map((item) => (
                 <NavLink key={item.to} to={`/o/${current.organization.id}/${item.to}`}>
                   {item.label}

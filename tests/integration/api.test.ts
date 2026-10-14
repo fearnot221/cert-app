@@ -228,6 +228,7 @@ async function createCertificate(
         organization_name: suffix,
         event_name: batch.eventName,
         issue_date: "2026-10-15",
+        certificate_number: `TEST-${id}`,
       },
       generationStatus: pending ? "pending" : "success",
       pdfKey: pending ? null : pdfKey,
@@ -2120,7 +2121,8 @@ it('supersedes a valid edition, retains in-flight notification outcomes and canc
   expect((await db.deliveryAttempt.findUniqueOrThrow({ where: { id: attempt.id } })).status).toBe('unknown');
   const report = await owner.request('GET', `${path}/failures.csv`);
   expect(report.body).toContain(fixture.cert.number);
-  expect(report.body).not.toContain(`CERT-${result.json().certificateId.toUpperCase()}`);
+  const replacement = await db.certificate.findUniqueOrThrow({ where: { id: result.json().certificateId } });
+  expect(report.body).not.toContain(replacement.number);
   expect((await owner.request('POST', `${path}/cancel`, { reason: '取消補發', revision: 2 })).statusCode).toBe(200);
   await processPdf(result.json().certificateId, orgA);
   expect((await db.issuanceBatch.findUniqueOrThrow({ where: { id: fixture.batch.id } })).status).toBe('cancelled');
@@ -2272,5 +2274,103 @@ describe('preview conflicts and notification retry', () => {
     expect(ambiguous.statusCode).toBe(409);
     expect(ambiguous.json().message).toContain('人工核對');
     expect(await db.outboxEvent.count({ where: { kind: 'mail', entityId: delivery.id } })).toBe(2);
+  });
+});
+
+describe('certificate serial numbers, built-in fields and PDF backgrounds', () => {
+  it('numbers certificates from the organization sequence, only forwards, and keeps numbers on regeneration', async () => {
+    const settingsPath = `/api/organizations/${orgA}/settings/serial`;
+    const current = await owner.request('GET', settingsPath);
+    expect(current.statusCode, current.body).toBe(200);
+    const start = current.json().issued + 100;
+    expect((await designer.request('PUT', settingsPath, { prefix: 'NOPE', digits: 4 })).statusCode).toBe(403);
+    expect((await owner.request('PUT', settingsPath, { prefix: 'bad prefix', digits: 4 })).statusCode).toBe(400);
+    const updated = await owner.request('PUT', settingsPath, { prefix: 'orga', digits: 4, nextSequence: start });
+    expect(updated.statusCode, updated.body).toBe(200);
+    expect(updated.json().nextNumber).toBe(`ORGA-${String(start).padStart(4, '0')}`);
+    expect((await owner.request('PUT', settingsPath, { prefix: 'ORGA', digits: 4, nextSequence: start - 1 })).statusCode).toBe(409);
+    expect(await db.auditLog.count({ where: { organizationId: orgA, action: 'organization.serial_updated' } })).toBeGreaterThan(0);
+    const other = await db.organization.findUniqueOrThrow({ where: { id: orgB } });
+    expect(other.certificatePrefix).toBe('CERT');
+
+    const created = await owner.request('POST', `/api/organizations/${orgA}/batches`, {
+      templateVersionId: versionA,
+      eventName: '流水號活動',
+      csv: `recipient_name,recipient_email\n流水一,${email('serial-1')}\n流水二,${email('serial-2')}`,
+      idempotencyKey: randomUUID(),
+    });
+    expect(created.statusCode, created.body).toBe(200);
+    const batchId = created.json().id;
+    const rows = await db.batchRow.findMany({ where: { batchId }, orderBy: { rowNumber: 'asc' } });
+    const preview = await owner.request('POST', `/api/organizations/${orgA}/batches/${batchId}/preview`, { rowId: rows[0]!.id });
+    expect(preview.statusCode).toBe(200);
+    // A sample PDF shows the format but does not use up a number.
+    expect((await owner.request('GET', settingsPath)).json().nextSequence).toBe(start);
+    expect((await owner.request('POST', `/api/organizations/${orgA}/batches/${batchId}/generate`)).statusCode).toBe(200);
+    expect((await owner.request('POST', `/api/organizations/${orgA}/batches/${batchId}/generate`)).statusCode).toBe(200);
+    const certificates = await db.certificate.findMany({ where: { batchId }, include: { row: true }, orderBy: { row: { rowNumber: 'asc' } } });
+    expect(certificates.map((c) => c.number)).toEqual([0, 1].map((i) => `ORGA-${String(start + i).padStart(4, '0')}`));
+    for (const c of certificates)
+      expect((c.dataSnapshot as Record<string, string>).certificate_number).toBe(c.number);
+    expect((await owner.request('GET', settingsPath)).json().issued).toBe(start + 1);
+  });
+
+  it('adds the built-in serial field to every saved template and accepts custom fields', async () => {
+    const legacy = createDefaultDocument();
+    legacy.fields = legacy.fields.filter((field) => field.key !== 'certificate_number');
+    legacy.elements = legacy.elements.filter((element) => !element.text.includes('certificate_number'));
+    legacy.fields.push({ key: 'hours', label: '課程時數', type: 'number', required: true });
+    legacy.elements.push({ ...legacy.elements[0]!, id: 'hours', text: '共 {{hours}} 小時' });
+    const created = await owner.request('POST', `/api/organizations/${orgA}/templates`, { name: '自訂欄位模板', document: legacy });
+    expect(created.statusCode, created.body).toBe(200);
+    const saved = await db.template.findUniqueOrThrow({ where: { id: created.json().id } });
+    const keys = (saved.document as TemplateDocument).fields.map((field) => field.key);
+    expect(keys).toContain('certificate_number');
+    expect(keys).toContain('hours');
+  });
+
+  it('keeps a PDF background as vectors on issued certificates, with a PNG preview, and rejects broken PDFs', async () => {
+    const created = await owner.request('POST', `/api/organizations/${orgA}/batches`, {
+      templateVersionId: versionA,
+      eventName: 'PDF 背景',
+      csv: `recipient_name,recipient_email\n背景,${email('pdf-bg')}`,
+      idempotencyKey: randomUUID(),
+    });
+    const row = await db.batchRow.findFirstOrThrow({ where: { batchId: created.json().id } });
+    const pdf = (await owner.request('POST', `/api/organizations/${orgA}/batches/${created.json().id}/preview`, { rowId: row.id })).rawPayload;
+    const uploaded = await owner.upload(`/api/organizations/${orgA}/assets`, 'background.pdf', pdf);
+    expect(uploaded.statusCode, uploaded.body).toBe(200);
+    expect(uploaded.json()).toMatchObject({ mimeType: 'image/png', source: 'pdf', pdfPages: 1 });
+    expect(uploaded.json().width).toBeGreaterThan(uploaded.json().height);
+    const asset = await db.asset.findUniqueOrThrow({ where: { id: uploaded.json().id } });
+    const stored = await storage.get(asset.storageKey);
+    expect((await sharp(stored).metadata()).format).toBe('png');
+    const vector = await storage.get(asset.vectorStorageKey!);
+    expect(vector.subarray(0, 5).toString()).toBe('%PDF-');
+    expect(createHash('sha256').update(vector).digest('hex')).toBe(asset.vectorSha256);
+
+    // Certificates from a template on that background are drawn on the vector page, not the PNG.
+    const document = { ...createDefaultDocument(), backgroundAssetId: asset.id };
+    const template = await owner.request('POST', `/api/organizations/${orgA}/templates`, { name: '向量背景模板', document });
+    expect(template.statusCode, template.body).toBe(200);
+    const version = await owner.request('POST', `/api/organizations/${orgA}/templates/${template.json().id}/publish`);
+    expect(version.statusCode, version.body).toBe(200);
+    const manifest = (await db.templateVersion.findUniqueOrThrow({ where: { id: version.json().id } })).assetManifest;
+    expect(manifest).toMatchObject({ background: { id: asset.id, sha256: asset.sha256, vectorSha256: asset.vectorSha256 } });
+    const onVector = await owner.request('POST', `/api/organizations/${orgA}/batches`, {
+      templateVersionId: version.json().id,
+      eventName: '向量背景',
+      csv: `recipient_name,recipient_email\n向量,${email('pdf-vector')}`,
+      idempotencyKey: randomUUID(),
+    });
+    expect(onVector.statusCode, onVector.body).toBe(200);
+    const vectorRow = await db.batchRow.findFirstOrThrow({ where: { batchId: onVector.json().id } });
+    const rendered = await owner.request('POST', `/api/organizations/${orgA}/batches/${onVector.json().id}/preview`, { rowId: vectorRow.id });
+    expect(rendered.statusCode, rendered.body).toBe(200);
+    const output = rendered.rawPayload.toString('latin1');
+    expect(output).not.toMatch(/\/Subtype\s*\/Image/);
+
+    const broken = await owner.upload(`/api/organizations/${orgA}/assets`, 'broken.pdf', Buffer.from('%PDF-1.7\nnot really a pdf'));
+    expect(broken.statusCode).toBe(400);
   });
 });
