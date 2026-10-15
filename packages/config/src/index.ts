@@ -37,9 +37,9 @@ if (
   );
 if (
   config.MAIL_MODE === "smtp" &&
-  (!config.MAIL_FROM || !config.SMTP_USER || !config.SMTP_PASS)
+  (!config.MAIL_FROM || !config.SMTP_HOST || !config.SMTP_USER || !config.SMTP_PASS)
 )
-  throw new Error("SMTP mail needs MAIL_FROM, SMTP_USER and SMTP_PASS.");
+  throw new Error("SMTP mail needs SMTP_HOST, MAIL_FROM, SMTP_USER and SMTP_PASS.");
 if (
   config.MAIL_MODE === "mailpit" &&
   !["127.0.0.1", "localhost", "mailpit"].includes(config.SMTP_HOST)

@@ -1,25 +1,37 @@
 # 寄件設定與驗證
 
-查核日期：2026-10-15。本機用 Mailpit；正式環境可用 `MAIL_MODE=smtp` 透過一個已驗證的寄件網域寄出（建議 Cloudflare Email Sending，見下節）。多組織各自網域、Google Relay 和設定精靈仍待 Phase 3。
+查核日期：2026-10-15。本機用 Mailpit；正式環境可用 `MAIL_MODE=smtp` 透過一個已驗證的寄件網域寄出（見下節）。多組織各自網域、Google Relay 和設定精靈仍待 Phase 3。
 
-## 正式寄信：Cloudflare Email Sending（SMTP）
+## 正式寄信（SMTP）
 
-網域在 Cloudflare 上時，用 [Cloudflare Email Service](https://developers.cloudflare.com/email-service/) 的 [SMTP submission](https://developers.cloudflare.com/changelog/post/2026-06-08-smtp-submission/) 寄信，不需自架郵件伺服器。寄送任意收件人需要 Workers Paid 方案（每月含 3,000 封，之後每千封 USD 0.35，見[價格](https://developers.cloudflare.com/email-service/platform/pricing/)）；新帳號每日額度保守，會依信譽調升。
+任何支援帳密登入與 TLS 的 SMTP 服務都可用，只要設定 env，不需改程式。網域 DNS 可以留在 Cloudflare 免費方案，在那裡加上服務商要求的 SPF／DKIM 記錄即可。
 
-1. Cloudflare 後台 Email Service 加入寄件網域（例：fearnot.tw），照指示加入 SPF／DKIM 等 DNS 記錄，等狀態變為已驗證。
-2. 建立具 **Email Sending: Edit** 權限的 API token。
+**Cloudflare 免費方案不能寄給一般收件人**：Email Routing 只收信；[Email Sending](https://developers.cloudflare.com/email-service/platform/pricing/) 寄任意收件人需要 Workers Paid，免費方案只能寄給自己驗證過的信箱。
+
+| 服務 | 免費額度（2026-10 查核，以官方為準） | SMTP 設定 |
+| --- | --- | --- |
+| Resend（建議） | 每月 3,000 封、每日 100 封 | `smtp.resend.com`，port 465，帳號 `resend`，密碼為 API key |
+| Brevo | 每日 300 封 | `smtp-relay.brevo.com`，port 587（STARTTLS），帳號與 SMTP key 見後台 |
+| Cloudflare Email Sending | 需 Workers Paid（每月 USD 5，含 3,000 封） | `smtp.mx.cloudflare.net`，port 465，帳號 `api_token`，密碼為 API token |
+
+以 Resend 為例：
+
+1. Resend 後台加入寄件網域（例：fearnot.tw），把它給的 DNS 記錄加到 Cloudflare DNS（記錄設為「DNS only」，不經代理），等網域驗證通過。
+2. 建立只有寄信權限的 API key。
 3. 在 production env 檔設定：
 
 ```bash
 MAIL_MODE=smtp
-SMTP_HOST=smtp.mx.cloudflare.net
+SMTP_HOST=smtp.resend.com
 SMTP_PORT=465
-SMTP_USER=api_token
-SMTP_PASS=<上一步的 API token>
+SMTP_USER=resend
+SMTP_PASS=<API key>
 MAIL_FROM=cert@fearnot.tw
 ```
 
 4. 重新啟動 api／worker，用自己的信箱跑一次發送，檢查原始標頭的 SPF、DKIM、DMARC 為 pass。
+
+每日額度用完時服務商會暫時拒收：系統重試數次後標為失敗，隔天可在後台對失敗通知重新排入。單一活動收件人超過每日額度時，需分天寄出或改用付費方案。
 
 `MAIL_MODE=smtp` 一律走 TLS（465 隱含 TLS，其他 port 強制 STARTTLS）並驗證憑證；可見 From 固定為 `MAIL_FROM`，組織只能決定顯示名稱。worker 在 production overlay 多接一個可對外的 `egress` 網路以連到 SMTP；api、DB、Redis 仍在內部網路。
 

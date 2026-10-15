@@ -2,7 +2,7 @@
 # Mail stays disabled unless MAIL_MODE=smtp and the SMTP_* / MAIL_FROM secrets are set.
 x-mail: &mail
   MAIL_MODE: ${MAIL_MODE:-disabled}
-  SMTP_HOST: ${SMTP_HOST:-smtp.mx.cloudflare.net}
+  SMTP_HOST: ${SMTP_HOST:-}
   SMTP_PORT: ${SMTP_PORT:-465}
   SMTP_USER: ${SMTP_USER:-}
   SMTP_PASS: ${SMTP_PASS:-}

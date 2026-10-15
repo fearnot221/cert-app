@@ -84,7 +84,7 @@ POSTGRES_PASSWORD=<隨機長字串>
 SESSION_SECRET=<至少 32 字元隨機字串>
 ```
 
-要寄出下載密碼信，再加上 `MAIL_MODE=smtp` 與 SMTP 設定，見 [EMAIL_SETUP.md](EMAIL_SETUP.md#正式寄信cloudflare-email-sendingsmtp)。未設定時寄信維持停用，收件人拿不到下載密碼。`create-admin` 會一併建立組織的寄件身分，執行時帶上同一個 `MAIL_FROM`。
+要寄出下載密碼信，再加上 `MAIL_MODE=smtp` 與 SMTP 設定，見 [EMAIL_SETUP.md](EMAIL_SETUP.md#正式寄信smtp)。未設定時寄信維持停用，收件人拿不到下載密碼。`create-admin` 會一併建立組織的寄件身分，執行時帶上同一個 `MAIL_FROM`。
 
 API 以 `TRUST_PROXY=loopback,uniquelocal` 信任 Docker 私有網段的 Caddy／nginx，限流因此依訪客真實 IP 計算；直接連到 API 的公網位址所帶 X-Forwarded-For 不被採信。本機 `pnpm dev` 不設定此值。
 
