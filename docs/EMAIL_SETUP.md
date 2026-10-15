@@ -1,6 +1,29 @@
 # 寄件設定與驗證
 
-查核日期：2026-10-15。**Phase 1 僅啟用 Mailpit；正式 SMTP、Google Relay 和設定精靈仍待 Phase 3。** 本文件的外部設定流程不表示已完成串接。
+查核日期：2026-10-15。本機用 Mailpit；正式環境可用 `MAIL_MODE=smtp` 透過一個已驗證的寄件網域寄出（建議 Cloudflare Email Sending，見下節）。多組織各自網域、Google Relay 和設定精靈仍待 Phase 3。
+
+## 正式寄信：Cloudflare Email Sending（SMTP）
+
+網域在 Cloudflare 上時，用 [Cloudflare Email Service](https://developers.cloudflare.com/email-service/) 的 [SMTP submission](https://developers.cloudflare.com/changelog/post/2026-06-08-smtp-submission/) 寄信，不需自架郵件伺服器。寄送任意收件人需要 Workers Paid 方案（每月含 3,000 封，之後每千封 USD 0.35，見[價格](https://developers.cloudflare.com/email-service/platform/pricing/)）；新帳號每日額度保守，會依信譽調升。
+
+1. Cloudflare 後台 Email Service 加入寄件網域（例：fearnot.tw），照指示加入 SPF／DKIM 等 DNS 記錄，等狀態變為已驗證。
+2. 建立具 **Email Sending: Edit** 權限的 API token。
+3. 在 production env 檔設定：
+
+```bash
+MAIL_MODE=smtp
+SMTP_HOST=smtp.mx.cloudflare.net
+SMTP_PORT=465
+SMTP_USER=api_token
+SMTP_PASS=<上一步的 API token>
+MAIL_FROM=cert@fearnot.tw
+```
+
+4. 重新啟動 api／worker，用自己的信箱跑一次發送，檢查原始標頭的 SPF、DKIM、DMARC 為 pass。
+
+`MAIL_MODE=smtp` 一律走 TLS（465 隱含 TLS，其他 port 強制 STARTTLS）並驗證憑證；可見 From 固定為 `MAIL_FROM`，組織只能決定顯示名稱。worker 在 production overlay 多接一個可對外的 `egress` 網路以連到 SMTP；api、DB、Redis 仍在內部網路。
+
+不建議自架郵件伺服器：多數主機商與家用網路封鎖對外 port 25，新 IP 沒有反解與信譽時 Gmail／Outlook 常直接拒收或進垃圾信。
 
 ## 本地實際郵件
 
@@ -8,7 +31,7 @@
 
 產製完成後，管理者另外確認發送。新帳號應收到啟用連結，既有帳號只收到領取通知；啟用不授予後台權限，不重設既有密碼。用瀏覽器開啟連結時不消耗 token，設定密碼的 POST 才原子消耗。
 
-`MAIL_MODE=disabled` 明確阻止寄信。production 啟動必須使用 disabled，直到具授權的正式 SMTP provider 和防護完成；不能把 Mailpit 的成功當成外部投遞驗證。
+`MAIL_MODE=disabled` 明確阻止寄信。production 只接受 `smtp` 或 `disabled`，不接受 Mailpit；不能把 Mailpit 的成功當成外部投遞驗證。
 
 ## 模型責任（完整目標）
 

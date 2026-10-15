@@ -67,7 +67,7 @@ docker compose --env-file /secure/cert-app-production.env \
   -p cert-app-production -f compose.yaml -f compose.production.yaml up --build -d
 ```
 
-overlay 移除 DB／Redis 的 host ports，Mailpit 需明確 development profile 才啟用，`MAIL_MODE=disabled`。它不會讓正式寄信變成可用；Phase 3 完成前正式通知功能保持停用。Coolify Compose parser 是否完整支援 `!reset` 必須在所用版本驗證；如不支援，使用本地 `docker compose ... config` 產出的合併配置建立私有部署文件，勿將輸出的 secrets 提交。
+overlay 移除 DB／Redis 的 host ports，Mailpit 需明確 development profile 才啟用。寄信預設 `MAIL_MODE=disabled`，設定 SMTP 後改為 `smtp`。Coolify Compose parser 是否完整支援 `!reset` 必須在所用版本驗證；如不支援，使用本地 `docker compose ... config` 產出的合併配置建立私有部署文件，勿將輸出的 secrets 提交。
 
 若 Coolify proxy 需連接 web，依該主機設定加入其 proxy network；不將 api／worker 加入外部 ingress。設定持久 volumes、備份目的地、資源限制與實際主機防火牆。首次正式管理帳號建立流程及 MFA 完成前不能開放公開註冊或部署 seed 管理員。
 
@@ -83,6 +83,8 @@ DOCKER_APP_ORIGIN=https://cert.fearnot.tw
 POSTGRES_PASSWORD=<隨機長字串>
 SESSION_SECRET=<至少 32 字元隨機字串>
 ```
+
+要寄出下載密碼信，再加上 `MAIL_MODE=smtp` 與 SMTP 設定，見 [EMAIL_SETUP.md](EMAIL_SETUP.md#正式寄信cloudflare-email-sendingsmtp)。未設定時寄信維持停用，收件人拿不到下載密碼。`create-admin` 會一併建立組織的寄件身分，執行時帶上同一個 `MAIL_FROM`。
 
 API 以 `TRUST_PROXY=loopback,uniquelocal` 信任 Docker 私有網段的 Caddy／nginx，限流因此依訪客真實 IP 計算；直接連到 API 的公網位址所帶 X-Forwarded-For 不被採信。本機 `pnpm dev` 不設定此值。
 

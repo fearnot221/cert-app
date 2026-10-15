@@ -54,6 +54,22 @@ await db.$transaction(async (tx) => {
   await tx.membership.create({
     data: { organizationId: org.id, userId: user.id, roleId: owner.id },
   });
+  // The organization's sender for MAIL_MODE=smtp; the provider always sends From MAIL_FROM.
+  const connection =
+    (await tx.emailConnection.findFirst({ where: { provider: "smtp" } })) ??
+    (await tx.emailConnection.create({ data: { name: "正式 SMTP", provider: "smtp" } }));
+  const grant = await tx.connectionGrant.create({
+    data: { organizationId: org.id, connectionId: connection.id },
+  });
+  await tx.senderIdentity.create({
+    data: {
+      organizationId: org.id,
+      grantId: grant.id,
+      displayName: org.name,
+      fromAddress: process.env.MAIL_FROM || `no-reply@${new URL(process.env.APP_ORIGIN ?? "http://localhost").hostname}`,
+      status: "verified",
+    },
+  });
   await tx.auditLog.create({
     data: {
       organizationId: org.id,

@@ -30,7 +30,7 @@ export async function processAccountMail(id: string) {
         (row.purpose === "activation"
           ? !!row.user.activatedAt
           : !row.user.activatedAt) ||
-        config.MAIL_MODE !== "mailpit" ||
+        config.MAIL_MODE === "disabled" ||
         Date.now() - row.createdAt.getTime() > 3600e3
       ) {
         await tx.accountMail.update({
@@ -68,7 +68,7 @@ export async function processAccountMail(id: string) {
     const text = `${subject}\n${url}\n連結有效期限：${activation ? "24 小時" : "30 分鐘"}，僅限使用一次。若非本人要求，可忽略本信。`;
     try {
       const sent = await emailProvider.send({
-        from: { name: "Certfolio 帳號服務", address: "accounts@example.test" },
+        from: { name: "Certfolio 帳號服務", address: config.MAIL_FROM || "accounts@example.test" },
         to: mail.user.email,
         subject,
         messageId: `<account-${id}@certfolio.local>`,

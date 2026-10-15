@@ -11,9 +11,13 @@ export const config = z
     REDIS_URL: z.string().default("redis://localhost:56379"),
     STORAGE_ROOT: z.string().default("./.runtime/storage"),
     SESSION_SECRET: z.string().min(32),
-    MAIL_MODE: z.enum(["mailpit", "disabled"]).default("disabled"),
+    MAIL_MODE: z.enum(["mailpit", "smtp", "disabled"]).default("disabled"),
     SMTP_HOST: z.string().default("127.0.0.1"),
     SMTP_PORT: z.coerce.number().default(51025),
+    SMTP_USER: z.string().default(""),
+    SMTP_PASS: z.string().default(""),
+    /// Every message in smtp mode is sent From this address; the domain needs SPF/DKIM at the provider.
+    MAIL_FROM: z.union([z.email(), z.literal("")]).default(""),
     WORKER_QUEUE_PREFIX: z
       .string()
       .regex(/^[A-Za-z0-9_-]+$/)
@@ -25,12 +29,17 @@ export const config = z
   .parse(process.env);
 if (
   config.NODE_ENV === "production" &&
-  (config.MAIL_MODE !== "disabled" ||
+  (config.MAIL_MODE === "mailpit" ||
     config.SESSION_SECRET.includes("replace-this"))
 )
   throw new Error(
-    "Production requires a private session secret and disabled mail until Phase3 verified SMTP is configured.",
+    "Production requires a private session secret and either smtp or disabled mail.",
   );
+if (
+  config.MAIL_MODE === "smtp" &&
+  (!config.MAIL_FROM || !config.SMTP_USER || !config.SMTP_PASS)
+)
+  throw new Error("SMTP mail needs MAIL_FROM, SMTP_USER and SMTP_PASS.");
 if (
   config.MAIL_MODE === "mailpit" &&
   !["127.0.0.1", "localhost", "mailpit"].includes(config.SMTP_HOST)
