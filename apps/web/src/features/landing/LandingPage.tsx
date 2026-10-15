@@ -129,7 +129,7 @@ export function LandingPage() {
         <figure className="features-figure" data-shutter>
           <img
             src="/landing/workspace-batch.webp"
-            alt="certfolio 發證活動頁：收件人表格列出產製狀態、證書編號與 PDF 操作"
+            alt="certfolio 發證活動頁：產製進度、使用的模板，以及收件人的流水號與產製狀態"
             width={1600}
             height={1600}
             loading="lazy"
