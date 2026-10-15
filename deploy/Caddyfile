@@ -1,4 +1,4 @@
-# Used by compose.cloudflare.yaml when the DNS record is proxied by Cloudflare (orange cloud).
+# Used by compose.production.yaml; the DNS record is proxied by Cloudflare (orange cloud).
 # Cloudflare SSL/TLS mode must be "Full (strict)"; the origin certificate comes from
 # Cloudflare dashboard > SSL/TLS > Origin Server and is mounted at /certs.
 {

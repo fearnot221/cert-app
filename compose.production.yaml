@@ -1,54 +1,155 @@
-# Production overlay. Requires Docker Compose >=2.24.4.
-# Mail stays disabled unless MAIL_MODE=smtp and the SMTP_* / MAIL_FROM secrets are set.
-x-mail: &mail
+# Production, self-contained: Cloudflare (orange cloud, SSL Full strict) -> Caddy -> nginx -> api/worker.
+#   cp .env.production.example .env        # then fill it in
+#   docker compose -f compose.production.yaml up --build -d
+# Needs the Cloudflare Origin Certificate at deploy/certs/origin.pem and origin.key. See docs/DEPLOYMENT.md.
+name: cert-app-production
+
+x-app-environment: &app-environment
+  NODE_ENV: production
+  HOST: 0.0.0.0
+  PORT: 3001
+  APP_ORIGIN: ${DOCKER_APP_ORIGIN:?Set the canonical HTTPS origin}
+  DATABASE_URL: postgresql://cert:${POSTGRES_PASSWORD:?Set a private database password}@postgres:5432/cert_app
+  REDIS_URL: redis://redis:6379
+  STORAGE_ROOT: /data/storage
+  SESSION_SECRET: ${SESSION_SECRET:?Set a private session secret}
   MAIL_MODE: ${MAIL_MODE:-disabled}
   SMTP_HOST: ${SMTP_HOST:-}
   SMTP_PORT: ${SMTP_PORT:-465}
   SMTP_USER: ${SMTP_USER:-}
   SMTP_PASS: ${SMTP_PASS:-}
   MAIL_FROM: ${MAIL_FROM:-}
+  WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
+  # Visitor IPs arrive through Cloudflare, Caddy and nginx.
+  TRUST_PROXY: loopback,uniquelocal,cloudflare
+
+x-app-image: &app-image
+  build:
+    context: .
+    target: runtime
 
 services:
   postgres:
+    image: postgres:17-alpine
     environment:
+      POSTGRES_DB: cert_app
+      POSTGRES_USER: cert
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set a private database password}
-    ports: !reset []
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cert -d cert_app"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [backend]
+    restart: unless-stopped
+
   redis:
-    ports: !reset []
-  mailpit:
-    profiles: [development]
-    ports: !reset []
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [backend]
+    restart: unless-stopped
+
   migrate:
+    <<: *app-image
     environment:
-      NODE_ENV: production
-      APP_ORIGIN: ${DOCKER_APP_ORIGIN:?Set the canonical HTTPS origin}
-      SESSION_SECRET: ${SESSION_SECRET:?Set a private session secret}
+      <<: *app-environment
       MAIL_MODE: disabled
+    command: ["pnpm", "db:migrate"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [backend]
+    restart: "no"
+
   api:
-    environment:
-      <<: *mail
-      NODE_ENV: production
-      APP_ORIGIN: ${DOCKER_APP_ORIGIN:?Set the canonical HTTPS origin}
-      SESSION_SECRET: ${SESSION_SECRET:?Set a private session secret}
+    <<: *app-image
+    environment: *app-environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    volumes:
+      - certificate-storage:/data/storage
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    init: true
+    read_only: true
+    tmpfs: [/tmp]
+    shm_size: 256mb
+    mem_limit: 1g
+    cpus: 1.5
+    pids_limit: 256
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [backend]
+    restart: unless-stopped
+
   worker:
-    # Needs outbound access to the SMTP provider; the backend network has none.
+    <<: *app-image
+    environment: *app-environment
+    command: ["pnpm", "exec", "tsx", "apps/worker/src/index.ts"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    volumes:
+      - certificate-storage:/data/storage
+    init: true
+    read_only: true
+    tmpfs: [/tmp]
+    shm_size: 512mb
+    mem_limit: 2g
+    cpus: 2
+    pids_limit: 256
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    stop_grace_period: 45s
+    # egress reaches the SMTP provider; backend has no outbound access.
     networks: [backend, egress]
-    environment:
-      <<: *mail
-      NODE_ENV: production
-      APP_ORIGIN: ${DOCKER_APP_ORIGIN:?Set the canonical HTTPS origin}
-      SESSION_SECRET: ${SESSION_SECRET:?Set a private session secret}
+    restart: unless-stopped
+
   web:
-    ports: !reset []
+    build:
+      context: .
+      target: web
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:8080/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    networks: [frontend, backend]
+    restart: unless-stopped
+
   caddy:
-    # Terminates HTTPS for APP_DOMAIN with an automatic Let's Encrypt certificate.
     image: caddy:2.10.2-alpine
-    command: ["caddy", "reverse-proxy", "--from", "${APP_DOMAIN:?Set the public domain, e.g. cert.example.com}", "--to", "web:8080"]
+    command: ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?Set the public domain, e.g. cert.example.com}
     ports:
       - "80:80"
       - "443:443"
       - "443:443/udp"
     volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./deploy/certs:/certs:ro
       - caddy-data:/data
       - caddy-config:/config
     depends_on:
@@ -56,24 +157,34 @@ services:
         condition: service_healthy
     networks: [frontend]
     restart: unless-stopped
+
+  # One-off: docker compose -f compose.production.yaml run --rm -e ADMIN_EMAIL=... create-admin
   create-admin:
+    <<: *app-image
+    profiles: [tooling]
     environment:
-      NODE_ENV: production
-      APP_ORIGIN: ${DOCKER_APP_ORIGIN:?Set the canonical HTTPS origin}
-      SESSION_SECRET: ${SESSION_SECRET:?Set a private session secret}
+      <<: *app-environment
       MAIL_MODE: disabled
-      MAIL_FROM: ${MAIL_FROM:-}
-  seed:
-    environment:
-      NODE_ENV: production
-      MAIL_MODE: disabled
-      SEED_ADMIN_PASSWORD: ''
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      ADMIN_ORG_NAME: ${ADMIN_ORG_NAME:-}
+      ADMIN_ORG_SLUG: ${ADMIN_ORG_SLUG:-}
+    command: ["pnpm", "exec", "tsx", "prisma/create-admin.ts"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks: [backend]
+    restart: "no"
 
 volumes:
+  postgres-data:
+  redis-data:
+  certificate-storage:
   caddy-data:
   caddy-config:
 
 networks:
+  frontend:
   backend:
     internal: true
   egress:

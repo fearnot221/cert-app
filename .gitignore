@@ -13,3 +13,4 @@ test-results/
 .taste-skill/inspect/
 *.rdb
 deploy/certs/
+!.env.production.example
