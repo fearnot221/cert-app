@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <title>certfolio</title>
+  <defs>
+    <clipPath id="issue"><circle cx="190" cy="256" r="132"/></clipPath>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="#363535"/>
+  <circle cx="190" cy="256" r="132" fill="#ffe184"/>
+  <circle cx="322" cy="256" r="132" fill="#d9edbf"/>
+  <circle cx="322" cy="256" r="132" fill="#d9d163" clip-path="url(#issue)"/>
+</svg>
