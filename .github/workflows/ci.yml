@@ -35,6 +35,8 @@ jobs:
       - run: pnpm exec playwright install --with-deps chromium
       - run: sudo apt-get update && sudo apt-get install -y poppler-utils
       - run: pnpm lint
+      - name: Deployment webhook regression tests
+        run: python3 -B -m unittest discover -s deploy -p 'test_*.py' -v
       - run: pnpm typecheck
       - name: Unit and real Chromium renderer tests
         env:

@@ -28,6 +28,7 @@ ENV NODE_ENV=production
 ENV HOST=0.0.0.0
 ENV PORT=3001
 ENV STORAGE_ROOT=/data/storage
+ENV CHROMIUM_SANDBOX=false
 USER node
 EXPOSE 3001
 CMD ["pnpm", "exec", "tsx", "apps/api/src/index.ts"]

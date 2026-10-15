@@ -44,6 +44,8 @@ docker compose -p cert-app-container run --rm seed
 
 ## Healthcheck 與診斷
 
+`main` 通過 CI 後的伺服器 webhook 自動部署、去重、固定 images 與清理方式，見 [AUTO_DEPLOY.md](AUTO_DEPLOY.md)。Docker 預設 `CHROMIUM_SANDBOX=false` 以支援受限容器，依靠容器隔離；主機支援 sandbox namespaces 時可明確設為 `true`。非容器 Linux 未設定時仍預設開啟 Chromium sandbox。
+
 ```bash
 curl --fail http://localhost:8080/api/health
 docker compose ps

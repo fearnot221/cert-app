@@ -132,7 +132,10 @@ export async function renderPdf(options: RenderPdfOptions): Promise<Buffer> {
   const { html, document: template } = await buildMarkup(options);
   const browser = await chromium.launch({
     headless: true,
-    chromiumSandbox: process.platform === "linux",
+    // Restricted containers cannot create Chromium's sandbox namespaces.
+    chromiumSandbox: process.env.CHROMIUM_SANDBOX === "false"
+      ? false
+      : process.env.CHROMIUM_SANDBOX === "true" || process.platform === "linux",
     timeout: 30000,
   });
   // Font decoding and page.pdf do not consistently honor page default timeouts.

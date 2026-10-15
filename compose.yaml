@@ -13,6 +13,7 @@ x-app-environment: &app-environment
   SMTP_HOST: mailpit
   SMTP_PORT: 1025
   WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
+  CHROMIUM_SANDBOX: ${CHROMIUM_SANDBOX:-false}
   # nginx (and Caddy in production) reach the API from private Docker addresses.
   TRUST_PROXY: loopback,uniquelocal
 

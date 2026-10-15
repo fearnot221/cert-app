@@ -1,0 +1,21 @@
+[Unit]
+Description=Certificate app signed GitHub CI deployment webhook
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/cert-app-deploy.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+WorkingDirectory=%h/cert-app
+ExecStart=/usr/bin/python3 %h/cert-app/deploy/webhook.py
+Restart=always
+RestartSec=5
+TimeoutStopSec=60
+KillMode=control-group
+UMask=0077
+
+[Install]
+WantedBy=default.target

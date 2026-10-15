@@ -11,5 +11,11 @@
 
 {$APP_DOMAIN} {
 	tls /certs/origin.pem /certs/origin.key
-	reverse_proxy web:8080
+	@deployWebhook path /_deploy/github
+	handle @deployWebhook {
+		reverse_proxy unix//deploy-hook/webhook.sock
+	}
+	handle {
+		reverse_proxy web:8080
+	}
 }
