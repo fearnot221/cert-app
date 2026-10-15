@@ -12,3 +12,4 @@ test-results/
 .DS_Store
 .taste-skill/inspect/
 *.rdb
+deploy/certs/

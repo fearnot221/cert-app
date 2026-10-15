@@ -6,7 +6,7 @@ import helmet from "@fastify/helmet";
 import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
 import { ZodError } from "zod";
-import { config } from "@cert/config";
+import { config, trustedProxies } from "@cert/config";
 import { registerAuth, hashToken } from "./auth.js";
 import { registerRoutes } from "./routes.js";
 import { apiDocumentation } from "./openapi.js";
@@ -26,7 +26,7 @@ export async function buildApp() {
     logController: new LogController({ disableRequestLogging: true }),
     bodyLimit: 1024 * 1024,
     // Rate limits key on req.ip, so it must be the visitor, not the proxy in front of the API.
-    trustProxy: config.TRUST_PROXY || false,
+    trustProxy: trustedProxies.length ? trustedProxies : false,
   });
   await app.register(cookie, { secret: config.SESSION_SECRET });
   await app.register(helmet, { contentSecurityPolicy: false });
