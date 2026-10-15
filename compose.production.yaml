@@ -28,11 +28,39 @@ services:
       APP_ORIGIN: ${DOCKER_APP_ORIGIN:?Set the canonical HTTPS origin}
       SESSION_SECRET: ${SESSION_SECRET:?Set a private session secret}
       MAIL_MODE: disabled
+  web:
+    ports: !reset []
+  caddy:
+    # Terminates HTTPS for APP_DOMAIN with an automatic Let's Encrypt certificate.
+    image: caddy:2.10.2-alpine
+    command: ["caddy", "reverse-proxy", "--from", "${APP_DOMAIN:?Set the public domain, e.g. cert.example.com}", "--to", "web:8080"]
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      web:
+        condition: service_healthy
+    networks: [frontend]
+    restart: unless-stopped
+  create-admin:
+    environment:
+      NODE_ENV: production
+      APP_ORIGIN: ${DOCKER_APP_ORIGIN:?Set the canonical HTTPS origin}
+      SESSION_SECRET: ${SESSION_SECRET:?Set a private session secret}
+      MAIL_MODE: disabled
   seed:
     environment:
       NODE_ENV: production
       MAIL_MODE: disabled
       SEED_ADMIN_PASSWORD: ''
+
+volumes:
+  caddy-data:
+  caddy-config:
 
 networks:
   backend:

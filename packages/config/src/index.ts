@@ -19,6 +19,8 @@ export const config = z
       .regex(/^[A-Za-z0-9_-]+$/)
       .default("bull"),
     WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(4).default(2),
+    /// proxy-addr ranges whose X-Forwarded-For is trusted (e.g. "uniquelocal" for Docker networks); empty trusts none.
+    TRUST_PROXY: z.string().default(""),
   })
   .parse(process.env);
 if (

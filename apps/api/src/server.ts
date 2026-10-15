@@ -25,7 +25,8 @@ export async function buildApp() {
           },
     logController: new LogController({ disableRequestLogging: true }),
     bodyLimit: 1024 * 1024,
-    trustProxy: false,
+    // Rate limits key on req.ip, so it must be the visitor, not the proxy in front of the API.
+    trustProxy: config.TRUST_PROXY || false,
   });
   await app.register(cookie, { secret: config.SESSION_SECRET });
   await app.register(helmet, { contentSecurityPolicy: false });
