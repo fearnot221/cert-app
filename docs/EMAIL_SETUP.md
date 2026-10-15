@@ -34,7 +34,7 @@ MAIL_FROM=cert@fearnot.tw
 
 每日額度用完時服務商會暫時拒收：系統重試數次後標為失敗，隔天可在後台對失敗通知重新排入。單一活動收件人超過每日額度時，需分天寄出或改用付費方案。
 
-`MAIL_MODE=smtp` 一律走 TLS（465 隱含 TLS，其他 port 強制 STARTTLS）並驗證憑證；可見 From 固定為 `MAIL_FROM`，組織只能決定顯示名稱。worker 在 production overlay 多接一個可對外的 `egress` 網路以連到 SMTP；api、DB、Redis 仍在內部網路。
+`MAIL_MODE=smtp` 一律走 TLS（465 隱含 TLS，其他 port 強制 STARTTLS）並驗證憑證；可見 From 固定為 `MAIL_FROM`，組織只能決定顯示名稱。worker 在 `compose.production.yaml` 多接一個可對外的 `egress` 網路以連到 SMTP；api、DB、Redis 仍在內部網路。
 
 不建議自架郵件伺服器：多數主機商與家用網路封鎖對外 port 25，新 IP 沒有反解與信譽時 Gmail／Outlook 常直接拒收或進垃圾信。
 

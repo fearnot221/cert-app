@@ -4,7 +4,7 @@
 
 ## 一致備份
 
-證書是 DB metadata 加私有資產，兩者必須配對。備份前停止新的寫入／生成／寄送，等待已開始工作結束，記錄未完成 outbox 與 unknown mail，再進行以下操作。示例假定使用本 repository 的 Compose project；正式請補上正確 env-file／overlay，且輸出目錄僅管理者可讀。
+證書是 DB metadata 加私有資產，兩者必須配對。備份前停止新的寫入／生成／寄送，等待已開始工作結束，記錄未完成 outbox 與 unknown mail，再進行以下操作。示例假定使用本 repository 的 Compose project；正式環境改用 `docker compose -f compose.production.yaml`，且輸出目錄僅管理者可讀。
 
 ```bash
 mkdir -m 700 -p backup

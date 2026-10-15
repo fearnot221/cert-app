@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-// compose.cloudflare.yaml: Cloudflare -> Caddy -> nginx -> api.
+// compose.production.yaml: Cloudflare -> Caddy -> nginx -> api.
 process.env.TRUST_PROXY = "loopback,uniquelocal,cloudflare";
 let app: FastifyInstance;
 

@@ -1,4 +1,4 @@
-/** Cloudflare's published edge ranges (https://www.cloudflare.com/ips/), also listed in deploy/Caddyfile.cloudflare. */
+/** Cloudflare's published edge ranges (https://www.cloudflare.com/ips/), also listed in deploy/Caddyfile. */
 export const CLOUDFLARE_IP_RANGES = [
   "173.245.48.0/20", "103.21.244.0/22", "103.22.200.0/22", "103.31.4.0/22",
   "141.101.64.0/18", "108.162.192.0/18", "190.93.240.0/20", "188.114.96.0/20",

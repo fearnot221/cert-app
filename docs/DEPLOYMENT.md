@@ -36,9 +36,9 @@ docker compose -p cert-app-container run --rm seed
 
 切回本機模式前先 `docker compose -p cert-app-container stop`，再啟動原 `cert-app` project。若要保留同一份資料遷移模式，按備份還原程序一起搬移 PostgreSQL dump 與對應 storage；單純改 API 入口或只掛同一 DB 會造成找不到 PDF，不可視為成功遷移。
 
-容器 seed 透過 tooling profile 專用服務讀取 `.env` 的 `SEED_ADMIN_PASSWORD`；空值會拒絕執行。一般 API／worker 不接收種子密碼。production overlay 下 seed 會拒絕執行。不在鏡像內複製 `.env`，也不將 secret 編進 web bundle。
+容器 seed 透過 tooling profile 專用服務讀取 `.env` 的 `SEED_ADMIN_PASSWORD`；空值會拒絕執行。一般 API／worker 不接收種子密碼。production 不提供 seed 服務，seed 也會在 NODE_ENV=production 時拒絕執行。不在鏡像內複製 `.env`，也不將 secret 編進 web bundle。
 
-`Dockerfile` 使用 Node 24 Debian image 的已解析 digest；Chromium 由 lockfile 的 Playwright 版本安裝，避免瀏覽器／套件不相容。更新 image digest 或 Playwright 時重跑 PDF 測試。容器採非 root 的 Node 使用者、唯讀根目錄、tmpfs、process／CPU／RAM 限制。開發 backend 使用一般 bridge 以支援本機測試 ports；production overlay 改為 internal network 阻止外部出口。應用層另阻擋 renderer 外部請求；正式環境仍需驗證 sandbox 與 host 安全邊界。[Playwright 容器指引](https://playwright.dev/docs/docker)
+`Dockerfile` 使用 Node 24 Debian image 的已解析 digest；Chromium 由 lockfile 的 Playwright 版本安裝，避免瀏覽器／套件不相容。更新 image digest 或 Playwright 時重跑 PDF 測試。容器採非 root 的 Node 使用者、唯讀根目錄、tmpfs、process／CPU／RAM 限制。開發 backend 使用一般 bridge 以支援本機測試 ports；`compose.production.yaml` 改為 internal network 阻止外部出口（只有 worker 另接 egress 寄信）。應用層另阻擋 renderer 外部請求；正式環境仍需驗證 sandbox 與 host 安全邊界。[Playwright 容器指引](https://playwright.dev/docs/docker)
 
 本輪 runtime 保留 tsx 和必要 workspace 原始碼執行，沒有宣稱已作最小化 production image；後續可在不破壞 renderer 字型路徑的情況移到獨立編譯與裁切依賴。
 
@@ -54,66 +54,49 @@ API healthcheck 查 PostgreSQL；Redis 另有 ping，worker 啟動訊息及 outb
 
 如果使用上面的全部容器模式，診斷指令也加上 `-p cert-app-container`；不要把不同 project 的 health／logs 混在一起。
 
-## Production overlay 與 Coolify
+## 正式上線（cert.fearnot.tw，Cloudflare 橘雲）
 
-需要 Docker Compose >=2.24.4（使用 `!reset` 去除開發 port）。在 Coolify 建立 Docker Compose application，以本 repository 為來源；web 服務內部 port 8080 是唯一 HTTP 入口，由 Coolify proxy 提供 TLS 和網域。保持 api、worker、DB、Redis 在內部網路。
+正式環境只用一份 `compose.production.yaml`，不必和 `compose.yaml`（本機開發用）疊加。流量路徑：Cloudflare（橘雲、SSL Full (strict)）→ `caddy`（主機 80／443，Cloudflare Origin Certificate）→ `web`（nginx）→ `api`／`worker`。DB、Redis、api 只在內部網路；worker 另接 `egress` 網路以連到 SMTP。
 
-設定獨立 secrets：`POSTGRES_PASSWORD`、`SESSION_SECRET`、`DOCKER_APP_ORIGIN=https://實際網域`。不要共用開發 `.env`。正式 overlay 指令：
+### 1. Cloudflare
 
-```bash
-docker compose --env-file /secure/cert-app-production.env \
-  -p cert-app-production -f compose.yaml -f compose.production.yaml config --quiet
-docker compose --env-file /secure/cert-app-production.env \
-  -p cert-app-production -f compose.yaml -f compose.production.yaml up --build -d
-```
+1. DNS：A 記錄 `cert` 指向主機 IP，Proxy status 設為 **Proxied**。
+2. SSL/TLS → Overview：加密模式設為 **Full (strict)**。
+3. SSL/TLS → Origin Server → Create Certificate：主機名稱填 `cert.fearnot.tw`，在主機上把憑證存成 `deploy/certs/origin.pem`、私鑰存成 `deploy/certs/origin.key`（`chmod 600`；此目錄已列入 .gitignore，勿提交）。
+4. 建議主機防火牆的 80／443 只開放 [Cloudflare IP 段](https://www.cloudflare.com/ips/)，避免繞過 Cloudflare 直連。
 
-overlay 移除 DB／Redis 的 host ports，Mailpit 需明確 development profile 才啟用。寄信預設 `MAIL_MODE=disabled`，設定 SMTP 後改為 `smtp`。Coolify Compose parser 是否完整支援 `!reset` 必須在所用版本驗證；如不支援，使用本地 `docker compose ... config` 產出的合併配置建立私有部署文件，勿將輸出的 secrets 提交。
+### 2. 設定檔
 
-若 Coolify proxy 需連接 web，依該主機設定加入其 proxy network；不將 api／worker 加入外部 ingress。設定持久 volumes、備份目的地、資源限制與實際主機防火牆。首次正式管理帳號建立流程及 MFA 完成前不能開放公開註冊或部署 seed 管理員。
-
-## 單機直接上線（無主機反代，例：cert.fearnot.tw）
-
-主機前面沒有 Coolify／Traefik 等反向代理時，production overlay 內的 `caddy` 服務直接佔用主機 80／443，自動向 Let's Encrypt 取得 HTTPS 憑證並轉給 web（nginx）。上線前 DNS A／AAAA 記錄須指向主機，防火牆開放 80、443（含 443/udp）。若之後改放 Coolify 等反代，移除 `caddy` 服務並把 web 接到該反代的網路。
-
-複製 repository 的 `.env.production.example` 到 `/secure/cert-app-production.env` 後填寫（`.env.example` 只用於本機 `pnpm dev`，兩者不通用）。至少設定：
+在主機的 repository 目錄：
 
 ```bash
-APP_DOMAIN=cert.fearnot.tw
-DOCKER_APP_ORIGIN=https://cert.fearnot.tw
-POSTGRES_PASSWORD=<隨機長字串>
-SESSION_SECRET=<至少 32 字元隨機字串>
+cp .env.production.example .env   # 再填入網域、密碼與寄信設定
 ```
 
-要寄出下載密碼信，再加上 `MAIL_MODE=smtp` 與 SMTP 設定，見 [EMAIL_SETUP.md](EMAIL_SETUP.md#正式寄信smtp)。未設定時寄信維持停用，收件人拿不到下載密碼。`create-admin` 會一併建立組織的寄件身分，執行時帶上同一個 `MAIL_FROM`。
+`.env.example` 只用於本機 `pnpm dev`，與正式設定不通用。`POSTGRES_PASSWORD` 會放進連線字串，請用 `openssl rand -hex 32` 這類只含英數字的值。寄信設定見 [EMAIL_SETUP.md](EMAIL_SETUP.md#正式寄信smtp)；`MAIL_MODE=disabled` 時收件人拿不到下載密碼。`.env` 不進版控，也不會被複製進鏡像。
 
-API 以 `TRUST_PROXY=loopback,uniquelocal` 信任 Docker 私有網段的 Caddy／nginx，限流因此依訪客真實 IP 計算；直接連到 API 的公網位址所帶 X-Forwarded-For 不被採信。本機 `pnpm dev` 不設定此值。
+### 3. 啟動與建立管理員
+
+```bash
+docker compose -f compose.production.yaml up --build -d
+docker compose -f compose.production.yaml ps
+```
 
 首次建立組織與擁有者帳號（seed 在 production 會拒絕執行）：
 
 ```bash
-docker compose --env-file /secure/cert-app-production.env -p cert-app-production \
-  -f compose.yaml -f compose.production.yaml run --rm \
+docker compose -f compose.production.yaml run --rm \
   -e ADMIN_EMAIL=you@example.com -e ADMIN_PASSWORD='<12 字元以上>' \
   -e ADMIN_ORG_NAME='組織名稱' -e ADMIN_ORG_SLUG=sta create-admin
 ```
 
-指令只會新建組織；同名組織已存在或網址代稱被占用時拒絕，既有帳號的密碼不會被覆寫。完成後勿把 ADMIN_PASSWORD 留在 env 檔或 shell 歷史。
+指令只會新建組織與其寄件身分（寄件地址取 `.env` 的 `MAIL_FROM`）；同名組織已存在或網址代稱被占用時拒絕，既有帳號的密碼不會被覆寫。之後的 logs、更新、停止都用同一個 `-f compose.production.yaml`。
 
-## 經 Cloudflare 代理（橘雲）
+### 訪客 IP 與限流
 
-DNS 記錄開啟 Cloudflare 代理時，Let's Encrypt 無法直接驗證主機，改用 Cloudflare Origin Certificate，並在上述指令多加 `-f compose.cloudflare.yaml`：
+`deploy/Caddyfile` 只信任 Cloudflare 公布的 IP 段送來的 X-Forwarded-For，API 以 `TRUST_PROXY=loopback,uniquelocal,cloudflare` 沿 Cloudflare → Caddy → nginx 取得訪客真實 IP，限流因此按訪客計算，訪客自行偽造的位址被忽略。Cloudflare 更新 IP 段時，同步更新 `packages/config/src/cloudflare.ts` 與 Caddyfile（單元測試會檢查兩者一致）。
 
-1. Cloudflare DNS：A 記錄 `cert` 指向主機 IP，Proxy status 設為 **Proxied**。
-2. SSL/TLS → Overview：加密模式設為 **Full (strict)**。
-3. SSL/TLS → Origin Server → Create Certificate：主機名稱填 `cert.fearnot.tw`，把憑證存成 `deploy/certs/origin.pem`、私鑰存成 `deploy/certs/origin.key`（`chmod 600`，此目錄已列入 .gitignore，勿提交）。
-4. 啟動：
-
-```bash
-docker compose --env-file /secure/cert-app-production.env -p cert-app-production \
-  -f compose.yaml -f compose.production.yaml -f compose.cloudflare.yaml up --build -d
-```
-
-`deploy/Caddyfile.cloudflare` 只信任 Cloudflare 公布的 IP 段送來的 X-Forwarded-For，API 以 `TRUST_PROXY=loopback,uniquelocal,cloudflare` 取得訪客真實 IP，限流因此仍按訪客計算。Cloudflare 更新 [IP 段](https://www.cloudflare.com/ips/) 時，同步更新 `packages/config/src/cloudflare.ts` 與 Caddyfile（單元測試會檢查兩者一致）。建議主機防火牆的 80／443 只開放 Cloudflare IP 段，避免繞過 Cloudflare 直連。
+不經 Cloudflare 代理（灰雲）時，把 Caddyfile 的 `tls /certs/...` 一行刪除即可由 Caddy 自動向 Let's Encrypt 申請憑證。改放 Coolify 等外部反代時，移除 `caddy` 服務並把 web 接到該反代的網路。首次正式管理帳號建立流程及 MFA 完成前不能開放公開註冊。
 
 ## CI 與 PR Preview
 
