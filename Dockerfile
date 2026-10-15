@@ -24,6 +24,7 @@ RUN pnpm build
 RUN mkdir -p /data/storage && chown -R node:node /data /ms-playwright
 
 FROM workspace AS runtime
+LABEL io.cert-app.managed=true
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0
 ENV PORT=3001
@@ -34,6 +35,7 @@ EXPOSE 3001
 CMD ["pnpm", "exec", "tsx", "apps/api/src/index.ts"]
 
 FROM nginx:stable-alpine@sha256:0985e772fb9f729e6fa0980da05fca5d9c468e870eed43071545afa9d2e27d94 AS web
+LABEL io.cert-app.managed=true
 COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=workspace /app/apps/web/dist /usr/share/nginx/html
 EXPOSE 8080

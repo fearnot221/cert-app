@@ -10,6 +10,7 @@ main() {
   mkdir -p .runtime/deploy
   exec 9>.runtime/deploy/deploy.lock
   flock 9
+  docker info --format '{{.ServerVersion}}' >/dev/null
   export GIT_TERMINAL_PROMPT=0
   git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
   if [[ "$(git rev-parse refs/remotes/origin/main)" != "$sha" ]]; then
@@ -22,7 +23,12 @@ main() {
   fi
   local -a compose=(docker compose --project-name "$DEPLOY_PROJECT" --env-file .env -f compose.production.yaml)
   local -a previous=()
-  mapfile -t previous < <("${compose[@]}" images --quiet api worker web migrate | sort -u)
+  mapfile -t previous < <(
+    {
+      "${compose[@]}" images --quiet api worker web migrate
+      docker image ls --quiet --filter "reference=${DEPLOY_PROJECT}-*:latest"
+    } | sort -u
+  )
   git switch --force-create main "$sha"
   "${compose[@]}" config --quiet
   # One shared runtime image and one web image, both with stable tags.
@@ -48,12 +54,14 @@ main() {
     # A running/stopped container (including another application's) still needs this image.
     [[ -z "$(docker ps --all --quiet --filter "ancestor=$old")" ]] || continue
     while IFS= read -r tag; do
-      if [[ "$tag" =~ ^cert-app-production-(api|worker|web|migrate|runtime):latest$ ]]; then
+      if [[ "$tag" =~ ^cert-app-production-(api|worker|web|migrate|runtime|create-admin):latest$ ]]; then
         docker image rm "$tag" || true
       fi
     done < <(docker image inspect "$old" --format '{{range .RepoTags}}{{println .}}{{end}}' 2>/dev/null)
     docker image rm "$old" 2>/dev/null || true
   done
+  # Covers this application's dangling images from an interrupted/failed earlier build.
+  docker image prune --force --filter label=io.cert-app.managed=true
   # This dedicated host uses the default builder: bound unused cache, never prune volumes.
   docker builder prune --force --keep-storage 1GB
   echo "Deployment completed: $sha"

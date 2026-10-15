@@ -64,6 +64,7 @@ class DeployScriptTests(unittest.TestCase):
         migration = next(call for call in compose if "run" in call)
         self.assertEqual(migration[-4:], ["run", "--rm", "--no-deps", "migrate"])
         self.assertTrue(any(call[-4:] == ["prune", "--force", "--keep-storage", "1GB"] for call in docker))
+        self.assertIn(["docker", "image", "prune", "--force", "--filter", "label=io.cert-app.managed=true"], docker)
         self.assertFalse(any("down" in call or "--volumes" in call for call in docker))
         self.assertFalse(any(call[1:3] == ["volume", "prune"] for call in docker))
 

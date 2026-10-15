@@ -10,7 +10,8 @@ EnvironmentFile=%h/.config/cert-app-deploy.env
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=PYTHONUNBUFFERED=1
 WorkingDirectory=%h/cert-app
-ExecStart=/usr/bin/python3 %h/cert-app/deploy/webhook.py
+# Refresh the Docker group even when the user manager predates group membership.
+ExecStart=/usr/bin/sg docker -c "/usr/bin/python3 %h/cert-app/deploy/webhook.py"
 Restart=always
 RestartSec=5
 TimeoutStopSec=60
