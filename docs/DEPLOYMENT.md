@@ -75,7 +75,7 @@ overlay 移除 DB／Redis 的 host ports，Mailpit 需明確 development profile
 
 主機前面沒有 Coolify／Traefik 等反向代理時，production overlay 內的 `caddy` 服務直接佔用主機 80／443，自動向 Let's Encrypt 取得 HTTPS 憑證並轉給 web（nginx）。上線前 DNS A／AAAA 記錄須指向主機，防火牆開放 80、443（含 443/udp）。若之後改放 Coolify 等反代，移除 `caddy` 服務並把 web 接到該反代的網路。
 
-在 `/secure/cert-app-production.env` 至少設定：
+複製 repository 的 `.env.production.example` 到 `/secure/cert-app-production.env` 後填寫（`.env.example` 只用於本機 `pnpm dev`，兩者不通用）。至少設定：
 
 ```bash
 APP_DOMAIN=cert.fearnot.tw
