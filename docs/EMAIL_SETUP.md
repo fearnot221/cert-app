@@ -12,6 +12,7 @@
 | --- | --- | --- |
 | Resend（建議） | 每月 3,000 封、每日 100 封 | `smtp.resend.com`，port 465，帳號 `resend`，密碼為 API key |
 | Brevo | 每日 300 封 | `smtp-relay.brevo.com`，port 587（STARTTLS），帳號與 SMTP key 見後台 |
+| Gmail 個人帳號 | 每日 500 封（滾動 24 小時），超過會暫停寄信最多 24 小時 | `smtp.gmail.com`，port 465，帳號為完整 Gmail 地址，密碼為[應用程式密碼](https://support.google.com/accounts/answer/185833)（需開啟兩步驟驗證）；`MAIL_FROM` 必須是同一個 Gmail 地址 |
 | Cloudflare Email Sending | 需 Workers Paid（每月 USD 5，含 3,000 封） | `smtp.mx.cloudflare.net`，port 465，帳號 `api_token`，密碼為 API token |
 
 以 Resend 為例：
