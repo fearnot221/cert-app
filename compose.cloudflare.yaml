@@ -1,0 +1,14 @@
+# Add on top of compose.production.yaml when the domain is proxied by Cloudflare (orange cloud):
+#   docker compose -f compose.yaml -f compose.production.yaml -f compose.cloudflare.yaml ...
+# Put the Cloudflare Origin Certificate at deploy/certs/origin.pem and origin.key first.
+services:
+  caddy:
+    command: ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?Set the public domain, e.g. cert.example.com}
+    volumes:
+      - ./deploy/Caddyfile.cloudflare:/etc/caddy/Caddyfile:ro
+      - ./deploy/certs:/certs:ro
+  api:
+    environment:
+      TRUST_PROXY: loopback,uniquelocal,cloudflare

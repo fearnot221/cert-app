@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { CLOUDFLARE_IP_RANGES } from "./cloudflare.js";
+export { CLOUDFLARE_IP_RANGES };
 export const config = z
   .object({
     NODE_ENV: z
@@ -23,7 +25,8 @@ export const config = z
       .regex(/^[A-Za-z0-9_-]+$/)
       .default("bull"),
     WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(4).default(2),
-    /// proxy-addr ranges whose X-Forwarded-For is trusted (e.g. "uniquelocal" for Docker networks); empty trusts none.
+    /// proxy-addr ranges whose X-Forwarded-For is trusted (e.g. "uniquelocal" for Docker networks,
+    /// "cloudflare" for its edge); empty trusts none.
     TRUST_PROXY: z.string().default(""),
   })
   .parse(process.env);
@@ -45,3 +48,8 @@ if (
   !["127.0.0.1", "localhost", "mailpit"].includes(config.SMTP_HOST)
 )
   throw new Error("Development mail must use the local Mailpit sink.");
+/** TRUST_PROXY as proxy-addr ranges, with "cloudflare" expanded to its edge ranges. */
+export const trustedProxies = config.TRUST_PROXY.split(",")
+  .map((range) => range.trim())
+  .filter(Boolean)
+  .flatMap((range) => (range === "cloudflare" ? CLOUDFLARE_IP_RANGES : [range]));

@@ -99,6 +99,22 @@ docker compose --env-file /secure/cert-app-production.env -p cert-app-production
 
 指令只會新建組織；同名組織已存在或網址代稱被占用時拒絕，既有帳號的密碼不會被覆寫。完成後勿把 ADMIN_PASSWORD 留在 env 檔或 shell 歷史。
 
+## 經 Cloudflare 代理（橘雲）
+
+DNS 記錄開啟 Cloudflare 代理時，Let's Encrypt 無法直接驗證主機，改用 Cloudflare Origin Certificate，並在上述指令多加 `-f compose.cloudflare.yaml`：
+
+1. Cloudflare DNS：A 記錄 `cert` 指向主機 IP，Proxy status 設為 **Proxied**。
+2. SSL/TLS → Overview：加密模式設為 **Full (strict)**。
+3. SSL/TLS → Origin Server → Create Certificate：主機名稱填 `cert.fearnot.tw`，把憑證存成 `deploy/certs/origin.pem`、私鑰存成 `deploy/certs/origin.key`（`chmod 600`，此目錄已列入 .gitignore，勿提交）。
+4. 啟動：
+
+```bash
+docker compose --env-file /secure/cert-app-production.env -p cert-app-production \
+  -f compose.yaml -f compose.production.yaml -f compose.cloudflare.yaml up --build -d
+```
+
+`deploy/Caddyfile.cloudflare` 只信任 Cloudflare 公布的 IP 段送來的 X-Forwarded-For，API 以 `TRUST_PROXY=loopback,uniquelocal,cloudflare` 取得訪客真實 IP，限流因此仍按訪客計算。Cloudflare 更新 [IP 段](https://www.cloudflare.com/ips/) 時，同步更新 `packages/config/src/cloudflare.ts` 與 Caddyfile（單元測試會檢查兩者一致）。建議主機防火牆的 80／443 只開放 Cloudflare IP 段，避免繞過 Cloudflare 直連。
+
 ## CI 與 PR Preview
 
 GitHub Actions 執行 lint、typecheck、unit、獨立 `_test` DB integration、build 和 Playwright E2E。E2E 使用一次性 CI 資料庫和 Mailpit；不讀正式 secrets。檔案存在不表示遠端 CI 已跑過。
