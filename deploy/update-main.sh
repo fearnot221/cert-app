@@ -3,6 +3,9 @@ set -Eeuo pipefail
 
 # Define the complete function before checking out code that may replace this script.
 main() {
+  # The receiver keeps its secret/state private (0077), but checkout files become
+  # Docker build inputs and must be readable by non-root application users.
+  umask 0022
   local sha="${1:?Expected the CI-verified commit SHA}"
   [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || return 2
   cd "${DEPLOY_REPO:?}"
@@ -45,6 +48,8 @@ main() {
   "${compose[@]}" up -d --no-deps --no-build --wait --wait-timeout 60 caddy
   "${compose[@]}" exec -T caddy caddy reload --config /etc/cert-app-deploy/Caddyfile --adapter caddyfile
   "${compose[@]}" exec -T api node -e 'fetch("http://127.0.0.1:3001/api/health").then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))'
+  # Exercise HTTP as nginx's worker, not a root filesystem read that misses 0600 assets.
+  "${compose[@]}" exec -T web sh -ec 'for asset in / /favicon.ico /favicon.svg /apple-touch-icon.png /site.webmanifest /icon-192.png /icon-512.png; do wget -q -O /dev/null "http://127.0.0.1:8080$asset"; done; echo "Static icon HTTP smoke passed"'
   "${compose[@]}" exec -T api pnpm exec tsx -e 'import { renderPdf } from "@cert/renderer/server"; import { createDefaultDocument } from "@cert/contracts"; (async () => { const pdf = await renderPdf({document: createDefaultDocument(), data: {recipient_name:"部署驗證",recipient_email:"deploy@example.test",organization_name:"測試",event_name:"測試",issue_date:"2026-10-16",certificate_number:"DEPLOY-SMOKE"}}); if (pdf.subarray(0,5).toString() !== "%PDF-") throw new Error("Invalid PDF"); console.log("PDF smoke passed:", pdf.length); })();'
   "${compose[@]}" rm --force migrate
   # Remove only replaced images belonging to these application services; never force-remove.

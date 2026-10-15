@@ -24,6 +24,10 @@ if name == "git":
         print("b" * 40 if os.environ.get("STALE") == "1" or (os.environ.get("STALE_AFTER_BUILD") == "1" and n > 1) else "a" * 40)
     if args[0] == "status" and os.environ.get("DIRTY") == "1":
         print(" M compose.production.yaml")
+    if args[0] == "switch":
+        public = Path(os.environ["DEPLOY_REPO"]) / "checkout-public"
+        public.mkdir()
+        (public / "favicon.svg").write_text("<svg/>")
 if name == "docker":
     if "images" in args: print("oldimage")
     if args[:2] == ["image", "inspect"]: print("cert-app-production-api:latest")
@@ -43,11 +47,19 @@ class DeployScriptTests(unittest.TestCase):
                 path.write_text(FAKE)
                 path.chmod(0o755)
             log = root / "calls.jsonl"
+            secret = root / ".env"
+            secret.write_text("private fixture")
+            secret.chmod(0o600)
             env = dict(os.environ, PATH=str(binaries) + os.pathsep + os.environ["PATH"],
                        DEPLOY_REPO=directory, DEPLOY_PROJECT="cert-app-production",
                        CALL_LOG=str(log), **settings)
-            result = subprocess.run(["bash", str(SCRIPT), SHA], env=env, capture_output=True, text=True)
+            result = subprocess.run(["bash", "-c", 'umask 0077; exec bash "$1" "$2"', "deployment-test", str(SCRIPT), SHA], env=env, capture_output=True, text=True)
             self.assertTrue(log.exists(), result.stderr)
+            public = root / "checkout-public"
+            if public.exists():
+                self.assertEqual(public.stat().st_mode & 0o777, 0o755)
+                self.assertEqual((public / "favicon.svg").stat().st_mode & 0o777, 0o644)
+            self.assertEqual(secret.stat().st_mode & 0o777, 0o600)
             calls = [json.loads(line) for line in log.read_text().splitlines()]
             return result, calls
 

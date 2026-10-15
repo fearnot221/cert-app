@@ -18,7 +18,7 @@ RUN pnpm install --frozen-lockfile
 RUN pnpm --filter @cert/renderer exec playwright install --with-deps chromium
 # poppler-utils rasterises PDF certificate backgrounds (first page to PNG).
 RUN apt-get update && apt-get install -y --no-install-recommends poppler-utils && rm -rf /var/lib/apt/lists/*
-COPY . .
+COPY --chown=node:node . .
 RUN DATABASE_URL=postgresql://build:build@localhost:5432/build pnpm db:generate
 RUN pnpm build
 RUN mkdir -p /data/storage && chown -R node:node /data /ms-playwright
@@ -38,4 +38,7 @@ FROM nginx:stable-alpine@sha256:0985e772fb9f729e6fa0980da05fca5d9c468e870eed4307
 LABEL io.cert-app.managed=true
 COPY deploy/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=workspace /app/apps/web/dist /usr/share/nginx/html
+# Vite preserves permissions of public files copied from the checkout.
+RUN find /usr/share/nginx/html -type d -exec chmod 755 {} + \
+    && find /usr/share/nginx/html -type f -exec chmod 644 {} +
 EXPOSE 8080

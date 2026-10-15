@@ -7,6 +7,7 @@
 - 既有 Caddy 代理到 Unix socket；不公開額外 TCP port，不新增 Docker Compose 檔或 webhook container。
 - Python 標準函式庫 receiver 是 `fearnot` 的 systemd user service，啟用 linger 後開機啟動。服務透過 `sg docker` 取得已有的 Docker 群組權限，即使 user manager 早於群組設定啟動也可執行。
 - 使用 GitHub HMAC-SHA256 原始 body 簽章；secret 在 `~/.config/cert-app-deploy.env`，權限 600，與應用 `.env` 分開。
+- 服務及部署 script 使用 umask 0022，讓 checkout 的公開檔案可由容器內非 root 使用者讀取；secret 與部署 state 仍以明確的 0600 權限建立。web image 會統一靜態目錄 0755、檔案 0644，部署也實際請求首頁及所有 icon，避免只看 API health 而漏掉 Nginx 403。
 - 單一 `.runtime/deploy/state.json` 原子覆寫，持久記錄待部署版本、最後成功 SHA、CI run number 與最近錯誤。只有固定名稱的 lock、socket 與短暫 `state.tmp`，不產生每次部署副本、stash 或備份。
 - 單一 worker 與 `flock` 防止併行；重複通知及較舊 CI 結果會略過。服務重啟後繼續未完成工作；失敗每 60 秒重試，錯誤寫入 journal。
 - fetch `origin/main`，只部署仍為 main HEAD 的已通過 CI SHA；建置完再檢查一次，若有更新則等待新版本自己的 CI。
