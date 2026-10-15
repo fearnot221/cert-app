@@ -14,7 +14,8 @@ DROP INDEX "Certificate_organizationId_number_key";
 ALTER TABLE "Certificate" ADD CONSTRAINT "Certificate_serial_one_lineage"
   EXCLUDE USING gist ("organizationId" WITH =, "number" WITH =, "rowId" WITH <>);
 CREATE INDEX "Certificate_organizationId_number_idx" ON "Certificate"("organizationId", "number");
-CREATE INDEX "Certificate_number_idx" ON "Certificate"("number");
+-- Public lookups compare upper-cased serials.
+CREATE INDEX "Certificate_upper_number_idx" ON "Certificate"(upper("number"));
 
 -- Download passwords: only an argon2id hash is kept, with a per-certificate lockout after repeated failures.
 ALTER TABLE "Certificate"

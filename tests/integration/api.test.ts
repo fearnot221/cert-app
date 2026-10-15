@@ -31,6 +31,9 @@ const senderA = randomUUID();
 const senderB = randomUUID();
 const assetB = randomUUID();
 const email = (name: string) => `${prefix}-${name}@example.test`;
+/** Imported serials are unique per organization, so every run uses its own. */
+const runSerial = randomUUID().slice(0, 8).toUpperCase();
+const sn = (name: string) => `T${runSerial}-${name}`.toUpperCase();
 const json = (value: unknown) => value as Prisma.InputJsonValue;
 let app: FastifyInstance;
 let owner: Client;
@@ -150,16 +153,16 @@ class Client {
   }
 }
 
-async function createPublishedTemplate(organizationId: string) {
+async function createPublishedTemplate(organizationId: string, name = "整合測試模板", source: TemplateDocument = document) {
   const template = await db.template.create({
-    data: { organizationId, name: "整合測試模板", document: json(document) },
+    data: { organizationId, name, document: json(source) },
   });
   const version = await db.templateVersion.create({
     data: {
       organizationId,
       templateId: template.id,
       number: 1,
-      document: json(document),
+      document: json(source),
       rendererVersion: "1",
       assetManifest: {
         font: { version: FONT_ASSET_VERSION, sha256: FONT_SHA256 },
@@ -198,20 +201,22 @@ async function createCertificate(
       previewedAt: new Date(),
     },
   });
+  const id = randomUUID();
   const rowData = {
     recipient_name: addressee.name,
     recipient_email: person.email,
+    certificate_number: `TEST-${id}`,
   };
   const row = await db.batchRow.create({
     data: {
       organizationId,
       batchId: batch.id,
-      rowNumber: 2,
+      rowNumber: 1,
+      templateVersionId,
       data: rowData,
       status: pending ? "pending" : "success",
     },
   });
-  const id = randomUUID();
   const pdfKey = `${organizationId}/certificates/${id}.pdf`;
   await storage.put(pdfKey, Buffer.from(`%PDF-1.4\nprivate-fixture-${suffix}`));
   const cert = await db.certificate.create({
@@ -568,7 +573,7 @@ describe("tenant boundaries and permission enforcement", () => {
           {
             templateVersionId: versionB,
             eventName: "越權",
-            csv: `recipient_name,recipient_email\n測試,${email("new")}`,
+            csv: `recipient_name,recipient_email,certificate_number\n測試,${email("new")},${sn("scope")}`,
           },
         )
       ).statusCode,
@@ -750,7 +755,7 @@ describe("immutable publication and idempotent issuance", () => {
     const body = {
       templateVersionId: versionA,
       eventName: "既有帳號再發證",
-      csv: `recipient_name,recipient_email\n既有使用者,${email("owner")}\n新收件人,${email("new")}`,
+      csv: `recipient_name,recipient_email,certificate_number\n既有使用者,${email("owner")},${sn("dup-1")}\n新收件人,${email("new")},${sn("dup-2")}`,
       idempotencyKey: randomUUID(),
     };
     const created = await owner.request(
@@ -1273,24 +1278,9 @@ describe("account activation is atomic, expiring, and password preserving", () =
 });
 
 describe("real Mailpit notification content", () => {
-  it("sends a single-recipient activation message with only a hashed expiring credential persisted", async () => {
-    const user = await db.user.create({
-      data: { email: email("mail-activation") },
-    });
-    const fixture = await createCertificate(
-      orgA,
-      versionA,
-      user.id,
-      "Mailpit啟用",
-    );
-    const oldToken = randomBytes(32).toString("base64url");
-    await db.invitation.create({
-      data: {
-        userId: user.id,
-        tokenHash: hashToken(oldToken),
-        expiresAt: new Date(Date.now() + 60000),
-      },
-    });
+  it("mails the serial with a fresh password, stores only its hash, and the pair downloads the PDF without an account", async () => {
+    const user = await db.user.create({ data: { email: email("mail-password") } });
+    const fixture = await createCertificate(orgA, versionA, user.id, "Mailpit密碼");
     const delivery = await db.emailDelivery.create({
       data: {
         organizationId: orgA,
@@ -1300,104 +1290,93 @@ describe("real Mailpit notification content", () => {
         messageId: `<${randomUUID()}@example.test>`,
       },
     });
-    await Promise.all([
-      processMail(delivery.id, orgA),
-      processMail(delivery.id, orgA),
-    ]);
+    await Promise.all([processMail(delivery.id, orgA), processMail(delivery.id, orgA)]);
     const result = await db.emailDelivery.findUniqueOrThrow({
       where: { id: delivery.id },
       include: { attempts: true },
     });
     expect(result.status).toBe("accepted");
-    expect(result.status).not.toBe("delivered");
     expect(result.attempts).toHaveLength(1);
     expect(result.attempts[0]!.smtpCode).toBe(250);
     const mail = await receivedMail(user.email);
     expect(mail.To.map((recipient) => recipient.Address)).toEqual([user.email]);
-    expect(mail.From.Address).toBe("a@example.test");
-    expect(mail.Text).toContain("24 小時");
     expect(mail.Text).toContain(fixture.cert.number);
+    expect(mail.Text).toContain(`/download?serial=${encodeURIComponent(fixture.cert.number)}`);
+    expect(mail.Text).not.toContain("/activate#");
     expect(mail.HTML).toContain("href=");
-    expect(mail.Text).not.toContain(password);
-    const token = /\/activate#token=([A-Za-z0-9_-]+)/.exec(mail.Text)?.[1];
-    expect(token).toBeTruthy();
-    const invitation = await db.invitation.findUniqueOrThrow({
-      where: { tokenHash: hashToken(token!) },
-    });
-    expect(invitation.tokenHash).not.toBe(token);
-    expect(invitation.expiresAt.getTime()).toBeGreaterThan(Date.now());
-    expect(
-      (
-        await db.invitation.findUniqueOrThrow({
-          where: { tokenHash: hashToken(oldToken) },
-        })
-      ).consumedAt,
-    ).not.toBeNull();
-    const activation = new Client();
-    await activation.csrf();
-    expect(
-      (
-        await activation.request("POST", "/api/auth/activate", {
-          token: oldToken,
-          password,
-        })
-      ).statusCode,
-    ).toBe(400);
-    expect(
-      (
-        await activation.request("POST", "/api/auth/activate", {
-          token,
-          password,
-        })
-      ).statusCode,
-    ).toBe(200);
-    expect(
-      (
-        await activation.request(
-          "GET",
-          `/api/me/certificates/${fixture.cert.id}/pdf`,
-        )
-      ).statusCode,
-    ).toBe(200);
+    const mailed = /下載密碼：([A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4})/.exec(mail.Text)?.[1];
+    expect(mailed).toBeTruthy();
+    const stored = await db.certificate.findUniqueOrThrow({ where: { id: fixture.cert.id } });
+    expect(stored.accessKeyHash).toMatch(/^\$argon2id\$/);
+    expect(stored.accessKeyHash).not.toContain(mailed!.replaceAll("-", ""));
+    expect(await db.invitation.count({ where: { userId: user.id } })).toBe(0);
+
+    const visitor = new Client("10.20.0.1");
+    await visitor.csrf();
+    const download = (password: string, serial = fixture.cert.number.toLowerCase()) =>
+      visitor.request("POST", "/api/public/certificates/download", { serial, password });
+    const ok = await download(mailed!.replaceAll("-", "").toLowerCase());
+    expect(ok.statusCode, ok.body).toBe(200);
+    expect(ok.headers["content-type"]).toContain("application/pdf");
+    expect(ok.rawPayload).toEqual(await storage.get(stored.pdfKey!));
+    expect(await db.auditLog.count({ where: { resourceId: fixture.cert.id, action: "certificate.downloaded_with_password" } })).toBe(1);
+    expect((await download("AAAA-BBBB-CCCC")).statusCode).toBe(403);
+    expect((await download(mailed!, "NO-SUCH-SERIAL")).statusCode).toBe(403);
+
+    await db.certificate.update({ where: { id: fixture.cert.id }, data: { status: "revoked" } });
+    expect((await download(mailed!)).statusCode).toBe(410);
+    await db.certificate.update({ where: { id: fixture.cert.id }, data: { status: "valid", accessFailures: 0 } });
   });
 
-  it("sends an existing user a sign-in notification and preserves password and invitations", async () => {
-    const user = await db.user.create({
-      data: {
-        email: email("mail-existing"),
-        activatedAt: new Date(),
-        passwordHash: originalPasswordHash,
-      },
+  it("locks a serial after repeated wrong passwords, rotates the password on a new notification, and looks serials up without personal data", async () => {
+    const user = await db.user.create({ data: { email: email("mail-rotate") } });
+    const fixture = await createCertificate(orgA, versionA, user.id, "Mailpit換密碼");
+    const grant = await db.connectionGrant.findFirstOrThrow({ where: { organizationId: orgA, connectionId } });
+    const second = await db.senderIdentity.create({
+      data: { organizationId: orgA, grantId: grant.id, displayName: "第二寄件人", fromAddress: "second@example.test" },
     });
-    const fixture = await createCertificate(
-      orgA,
-      versionA,
-      user.id,
-      "Mailpit既有帳號",
-    );
-    const delivery = await db.emailDelivery.create({
-      data: {
-        organizationId: orgA,
-        certificateId: fixture.cert.id,
-        senderIdentityId: senderA,
-        toAddress: user.email,
-        messageId: `<${randomUUID()}@example.test>`,
-      },
-    });
-    await processMail(delivery.id, orgA);
-    const mail = await receivedMail(user.email);
-    expect(mail.Text).toContain(`${config.APP_ORIGIN}/my-certificates`);
-    expect(mail.Text).not.toContain("/activate#");
-    expect(mail.Text).not.toContain(password);
-    expect(
-      (await db.user.findUniqueOrThrow({ where: { id: user.id } }))
-        .passwordHash,
-    ).toBe(originalPasswordHash);
-    expect(await db.invitation.count({ where: { userId: user.id } })).toBe(0);
-    expect(
-      (await db.emailDelivery.findUniqueOrThrow({ where: { id: delivery.id } }))
-        .status,
-    ).toBe("accepted");
+    const send = async (senderIdentityId: string) => {
+      const delivery = await db.emailDelivery.create({
+        data: { organizationId: orgA, certificateId: fixture.cert.id, senderIdentityId, toAddress: user.email, messageId: `<${randomUUID()}@example.test>` },
+      });
+      await processMail(delivery.id, orgA);
+      for (let attempt = 0; attempt < 30; attempt += 1) {
+        const found = await fetch(`${mailpitOrigin}/api/v1/search?query=${encodeURIComponent(`message-id:${delivery.messageId.slice(1, -1)}`)}`);
+        const body = (await found.json()) as { messages: { ID: string }[] };
+        if (body.messages.length) {
+          const message = await (await fetch(`${mailpitOrigin}/api/v1/message/${body.messages[0]!.ID}`)).json();
+          return /下載密碼：([A-Z2-9-]{14})/.exec(message.Text)![1]!;
+        }
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      throw new Error("Mailpit did not receive the notification");
+    };
+    const first = await send(senderA);
+    const rotated = await send(second.id);
+    expect(rotated).not.toBe(first);
+    let address = 1;
+    const tryPassword = async (password: string) => {
+      const visitor = new Client(`10.30.0.${address++}`);
+      await visitor.csrf();
+      return visitor.request("POST", "/api/public/certificates/download", { serial: fixture.cert.number, password });
+    };
+    expect((await tryPassword(first)).statusCode).toBe(403);
+    expect((await tryPassword(rotated)).statusCode).toBe(200);
+    for (let i = 0; i < 10; i += 1) expect((await tryPassword("ZZZZ-ZZZZ-ZZZZ")).statusCode).toBe(403);
+    // Locked: even the right password waits, so guessing cannot continue from many addresses.
+    expect((await tryPassword(rotated)).statusCode).toBe(429);
+    await db.certificate.update({ where: { id: fixture.cert.id }, data: { accessLockedUntil: new Date(Date.now() - 1000) } });
+    expect((await tryPassword(rotated)).statusCode).toBe(200);
+
+    const lookup = await app.inject({ method: "GET", url: `/api/public/serials?serial=${encodeURIComponent(fixture.cert.number.toLowerCase())}` });
+    expect(lookup.statusCode, lookup.body).toBe(200);
+    expect(lookup.headers["x-robots-tag"]).toContain("noindex");
+    expect(lookup.json().matches).toEqual([
+      expect.objectContaining({ organization: `${prefix} A`, eventName: fixture.batch.eventName, status: "valid" }),
+    ]);
+    for (const secret of [user.email, "收件人", fixture.cert.id, fixture.cert.publicId, "accessKeyHash"])
+      expect(lookup.body).not.toContain(secret);
+    expect((await app.inject({ method: "GET", url: `/api/public/serials?serial=${sn("missing")}` })).statusCode).toBe(404);
   });
 });
 
@@ -1682,6 +1661,7 @@ describe("real worker interruption and failed-row recovery", () => {
           organizationId: orgA,
           batchId: fixture.batch.id,
           rowNumber: 3,
+          templateVersionId: versionA,
           data: {},
           status: "pending",
         },
@@ -1823,10 +1803,11 @@ describe("Excel import and scoped batch downloads", () => {
     ).toBe(403);
     const records = [
       {
-        rowNumber: 2,
+        rowNumber: 1,
         data: {
           recipient_name: "王小明",
           recipient_email: email("xlsx"),
+          certificate_number: sn("xlsx"),
           issue_date: "2026-10-15",
         },
       },
@@ -1874,7 +1855,7 @@ describe("Excel import and scoped batch downloads", () => {
           records: [
             {
               rowNumber: 2,
-              data: { recipient_name: "王小明", recipient_email: "bad" },
+              data: { recipient_name: "王小明", recipient_email: "bad", certificate_number: sn("bad") },
             },
           ],
           idempotencyKey: randomUUID(),
@@ -1897,7 +1878,7 @@ describe("Excel import and scoped batch downloads", () => {
           `/api/organizations/${orgA}/batches/validate`,
           {
             ...input,
-            csv: "recipient_name,recipient_email\n王小明,a@example.test",
+            csv: `recipient_name,recipient_email,certificate_number\n王小明,a@example.test,${sn("csv")}`,
           },
         )
       ).statusCode,
@@ -1930,6 +1911,7 @@ describe("Excel import and scoped batch downloads", () => {
         organizationId: orgA,
         batchId: fixture.batch.id,
         rowNumber: 9,
+        templateVersionId: versionA,
         status: "failed",
         error: '第一行\n第二行,"錯誤"',
         data: {
@@ -2036,13 +2018,13 @@ it("keeps signed workspace sessions independent behind one IP while retaining au
 
 describe('issuance lifecycle', () => {
   it('edits draft data atomically, rejects stale updates, clears preview and records before/after', async () => {
-    const created = await owner.request('POST', `/api/organizations/${orgA}/batches`, { templateVersionId: versionA, eventName: '修改前', records: [{ rowNumber: 2, data: { recipient_name: '原姓名', recipient_email: email('edit') } }], idempotencyKey: randomUUID() });
+    const created = await owner.request('POST', `/api/organizations/${orgA}/batches`, { templateVersionId: versionA, eventName: '修改前', records: [{ rowNumber: 1, data: { recipient_name: '原姓名', recipient_email: email('edit'), certificate_number: sn('edit') } }], idempotencyKey: randomUUID() });
     expect(created.statusCode, created.body).toBe(200);
     const id = created.json().id;
     await db.issuanceBatch.update({ where: { id }, data: { previewedAt: new Date() } });
-    const body = { revision: 1, eventName: '修改後', reason: '修正活動名稱及姓名', records: [{ rowNumber: 2, data: { recipient_name: '新姓名', recipient_email: email('edit') } }] };
+    const body = { revision: 1, eventName: '修改後', reason: '修正活動名稱及姓名', records: [{ rowNumber: 1, data: { recipient_name: '新姓名', recipient_email: email('edit'), certificate_number: sn('edit') } }] };
     const responses = await Promise.all([owner.request('PUT', `/api/organizations/${orgA}/batches/${id}`, body), owner.request('PUT', `/api/organizations/${orgA}/batches/${id}`, body)]);
-    expect(responses.map(r => r.statusCode).sort()).toEqual([200,409]);
+    expect(responses.map(r => r.statusCode).sort(), `${responses.map(r => r.body).join('\n')}\n${lastServerError?.message ?? ''}`).toEqual([200,409]);
     const b = await db.issuanceBatch.findUniqueOrThrow({ where: { id }, include: { rows: true } });
     expect(b.previewedAt).toBeNull(); expect(b.revision).toBe(2); expect(b.rows).toHaveLength(1);
     expect((b.rows[0]!.data as Record<string,string>).recipient_name).toBe('新姓名');
@@ -2069,7 +2051,7 @@ describe('issuance lifecycle', () => {
     expect((await owner.request('POST', `${url}/cancel`, { reason: '重複點擊', revision: 1 })).statusCode).toBe(200);
     expect(await db.auditLog.count({ where: { resourceId: fixture.batch.id, action: 'batch.cancelled' } })).toBe(1);
   });
-  it('revokes downloads and reissues once with immutable old bytes, a new number and full lineage', async () => {
+  it('revokes downloads and reissues once with immutable old bytes, the same serial and full lineage', async () => {
     const fixture = await createCertificate(orgA, versionA, recipientId, 'reissue', true);
     await processPdf(fixture.cert.id, orgA);
     expect((await owner.request('POST', `/api/organizations/${orgA}/certificates/${certB}/revoke`, { reason: '跨組織' })).statusCode).toBe(404);
@@ -2085,7 +2067,7 @@ describe('issuance lifecycle', () => {
     const responses = await Promise.all([owner.request('POST', `${url}/reissue`, body), owner.request('POST', `${url}/reissue`, body)]);
     expect(responses.map(r => r.statusCode).sort(), responses.map(r => r.body).join('\n')).toEqual([200,409]);
     const next = await db.certificate.findFirstOrThrow({ where: { previousCertificateId: old.id } });
-    expect(next.edition).toBe(2); expect(next.number).not.toBe(old.number); expect(next.rowId).toBe(old.rowId);
+    expect(next.edition).toBe(2); expect(next.number).toBe(old.number); expect(next.rowId).toBe(old.rowId);
     await processPdf(next.id, orgA); await processPdf(old.id, orgA);
     expect(await storage.get(old.pdfKey!)).toEqual(bytes);
     expect((await db.certificate.findUniqueOrThrow({ where: { id: old.id } })).dataSnapshot).toEqual(old.dataSnapshot);
@@ -2108,7 +2090,7 @@ it('supersedes a valid edition, retains in-flight notification outcomes and canc
   const delivery = await db.emailDelivery.create({ data: { organizationId: orgA, certificateId: fixture.cert.id, senderIdentityId: senderA, toAddress: email('recipient'), messageId: `${randomUUID()}@test`, status: 'sending' } });
   const attempt = await db.deliveryAttempt.create({ data: { organizationId: orgA, deliveryId: delivery.id, status: 'sending' } });
   const path = `/api/organizations/${orgA}/batches/${fixture.batch.id}`;
-  const edit = await owner.request('PUT', path, { reason: '不可修改已產製活動', revision: 1, eventName: '新活動名稱', records: [{ rowNumber: 2, data: { recipient_name: '學生', recipient_email: email('recipient') } }] });
+  const edit = await owner.request('PUT', path, { reason: '不可修改已產製活動', revision: 1, eventName: '新活動名稱', records: [{ rowNumber: 1, data: { recipient_name: '學生', recipient_email: email('recipient'), certificate_number: sn('locked') } }] });
   expect(edit.statusCode).toBe(409);
   const result = await owner.request('POST', `/api/organizations/${orgA}/certificates/${fixture.cert.id}/reissue`, { reason: '原證書補發' });
   expect(result.statusCode, result.body).toBe(200);
@@ -2122,25 +2104,30 @@ it('supersedes a valid edition, retains in-flight notification outcomes and canc
   const report = await owner.request('GET', `${path}/failures.csv`);
   expect(report.body).toContain(fixture.cert.number);
   const replacement = await db.certificate.findUniqueOrThrow({ where: { id: result.json().certificateId } });
-  expect(report.body).not.toContain(replacement.number);
+  // The replacement keeps the serial, so the report row is told apart by its stage, not its number.
+  expect(replacement.number).toBe(fixture.cert.number);
   expect((await owner.request('POST', `${path}/cancel`, { reason: '取消補發', revision: 2 })).statusCode).toBe(200);
   await processPdf(result.json().certificateId, orgA);
   expect((await db.issuanceBatch.findUniqueOrThrow({ where: { id: fixture.batch.id } })).status).toBe('cancelled');
 });
 
-describe('public verification and expiration', () => {
-  it('returns only minimal public metadata, protects pending/unknown IDs, and reports expiry at the boundary', async () => {
+describe('public serial lookup and expiration', () => {
+  const lookup = (serial: string) => app.inject({ method: 'GET', url: `/api/public/serials?serial=${encodeURIComponent(serial)}` });
+  it('confirms a serial with minimal public metadata, hides pending ones, retires the QR link and reports expiry at the boundary', async () => {
     const fixture = await createCertificate(orgA, versionA, recipientId, 'public-verification');
-    const url = `/api/public/certificates/${fixture.cert.publicId}`;
-    const result = await app.inject({ method: 'GET', url });
+    const result = await lookup(fixture.cert.number);
     expect(result.statusCode, result.body).toBe(200);
     expect(result.headers['cache-control']).toBe('no-store'); expect(result.headers['x-robots-tag']).toContain('noindex');
-    expect(result.json().status).toBe('valid'); expect(result.json().recipientName).toContain('＊');
-    for (const secret of [email('recipient'), orgA, fixture.cert.pdfKey!]) expect(result.body).not.toContain(secret);
-    expect(Object.keys(result.json()).sort()).toEqual(['checkedAt','edition','eventName','expiresAt','hasReplacement','issueDate','issuedAt','number','organization','recipientName','status'].sort());
-    expect((await app.inject({ method: 'GET', url: `/api/public/certificates/${randomUUID()}` })).statusCode).toBe(404);
+    expect(Object.keys(result.json()).sort()).toEqual(['checkedAt', 'matches', 'serial']);
+    expect(result.json().matches).toHaveLength(1);
+    expect(Object.keys(result.json().matches[0]).sort()).toEqual(['eventName', 'expiresAt', 'issueDate', 'organization', 'status']);
+    expect(result.json().matches[0].status).toBe('valid');
+    for (const secret of [email('recipient'), '收件人', orgA, fixture.cert.publicId, fixture.cert.pdfKey!]) expect(result.body).not.toContain(secret);
+    expect((await lookup(sn('unknown'))).statusCode).toBe(404);
+    expect((await lookup('')).statusCode).toBe(400);
     const pending = await createCertificate(orgA, versionA, recipientId, 'not-yet-public', true);
-    expect((await app.inject({ method: 'GET', url: `/api/public/certificates/${pending.cert.publicId}` })).statusCode).toBe(404);
+    expect((await lookup(pending.cert.number)).statusCode).toBe(404);
+    expect((await app.inject({ method: 'GET', url: `/api/public/certificates/${fixture.cert.publicId}` })).statusCode).toBe(404);
     const { certificateStatus, expiryInstant } = await import('../../packages/domain/src/verification');
     const cutoff = expiryInstant('2030-06-01')!;
     expect(cutoff.toISOString()).toBe('2030-06-01T15:59:59.999Z');
@@ -2159,7 +2146,7 @@ describe('public verification and expiration', () => {
     expect((await owner.request('POST', `/api/organizations/${orgA}/certificates/${certB}/expiry`, body)).statusCode).toBe(404);
     const results = await Promise.all([owner.request('POST', `${url}/expiry`, body), owner.request('POST', `${url}/expiry`, body)]);
     expect(results.map(r => r.statusCode).sort()).toEqual([200,409]);
-    expect((await app.inject({ method: 'GET', url: `/api/public/certificates/${c.publicId}` })).json().status).toBe('expired');
+    expect((await lookup(c.number)).json().matches[0].status).toBe('expired');
     expect((await owner.request('GET', `${url}/pdf`)).statusCode).toBe(404);
     expect((await recipient.request('GET', `/api/me/certificates/${c.id}/pdf`)).statusCode).toBe(404);
     expect((await owner.request('POST', `/api/organizations/${orgA}/batches/${c.batchId}/zip`, { certificateIds: [c.id] })).statusCode).toBe(400);
@@ -2168,33 +2155,39 @@ describe('public verification and expiration', () => {
     await processMail(delivery.id, orgA);
     expect((await db.emailDelivery.findUniqueOrThrow({ where: { id: delivery.id } })).status).not.toBe('accepted');
     expect((await owner.request('POST', `${url}/expiry`, { expiresOn: '2099-12-31', reason: '續期', revision: 2 })).statusCode).toBe(200);
-    expect((await app.inject({ method: 'GET', url: `/api/public/certificates/${c.publicId}` })).json().status).toBe('valid');
+    expect((await lookup(c.number)).json().matches[0].status).toBe('valid');
     expect((await owner.request('GET', `${url}/pdf`)).statusCode).toBe(200);
     expect(await storage.get(c.pdfKey!)).toEqual(bytes);
     const audit = await db.auditLog.findMany({ where: { resourceId: c.id, action: 'certificate.expiry_changed' } });
     expect(audit).toHaveLength(2); expect(JSON.stringify(audit)).toContain('續期');
     expect((await owner.request('POST', `${url}/revoke`, { reason: '資格撤回' })).statusCode).toBe(200);
-    expect((await app.inject({ method: 'GET', url: `/api/public/certificates/${c.publicId}` })).json().status).toBe('revoked');
+    expect((await lookup(c.number)).json().matches[0].status).toBe('revoked');
     expect((await owner.request('POST', `${url}/expiry`, { expiresOn: null, reason: '不得藉由續期解除撤銷', revision: 3 })).statusCode).toBe(409);
   });
-  it('keeps old verification links superseded, hides successor tokens, and inherits batch expiry', async () => {
-    const created = await owner.request('POST', `/api/organizations/${orgA}/batches`, { templateVersionId: versionA, eventName: '效期活動', expiresOn: '2099-06-01', records: [{ rowNumber: 2, data: { recipient_name: '期限學員', recipient_email: email('recipient') } }], idempotencyKey: randomUUID() });
+  it('keeps the serial and password on a reissue, shows only the newest edition, and inherits batch expiry', async () => {
+    const created = await owner.request('POST', `/api/organizations/${orgA}/batches`, { templateVersionId: versionA, eventName: '效期活動', expiresOn: '2099-06-01', records: [{ rowNumber: 1, data: { recipient_name: '期限學員', recipient_email: email('recipient'), certificate_number: sn('expiry') } }], idempotencyKey: randomUUID() });
     expect(created.statusCode, created.body).toBe(200);
     const batchId = created.json().id;
     await db.issuanceBatch.update({ where: { id: batchId }, data: { previewedAt: new Date() } });
     expect((await owner.request('POST', `/api/organizations/${orgA}/batches/${batchId}/generate`)).statusCode).toBe(200);
     const c = await db.certificate.findFirstOrThrow({ where: { batchId } });
+    expect(c.number).toBe(sn('expiry'));
     expect(c.expiresAt?.toISOString()).toBe('2099-06-01T15:59:59.999Z');
-    expect((c.dataSnapshot as Record<string,string>).verification_url).toContain(c.publicId);
+    expect(c.dataSnapshot as Record<string,string>).not.toHaveProperty('verification_url');
     await processPdf(c.id, orgA);
+    await db.certificate.update({ where: { id: c.id }, data: { accessKeyHash: '$argon2id$fixture' } });
     const next = await owner.request('POST', `/api/organizations/${orgA}/certificates/${c.id}/reissue`, { reason: '提供新版', expiresOn: null });
     expect(next.statusCode, next.body).toBe(200);
     const replacement = await db.certificate.findUniqueOrThrow({ where: { id: next.json().certificateId } });
     expect(replacement.expiresAt).toBeNull(); expect(replacement.publicId).not.toBe(c.publicId);
-    const old = await app.inject({ method: 'GET', url: `/api/public/certificates/${c.publicId}` });
-    expect(old.json().status).toBe('superseded'); expect(old.json().hasReplacement).toBe(true); expect(old.body).not.toContain(replacement.publicId);
+    expect(replacement.number).toBe(c.number);
+    expect(replacement.accessKeyHash).toBe('$argon2id$fixture');
+    await processPdf(replacement.id, orgA);
+    const current = await lookup(c.number);
+    expect(current.json().matches).toHaveLength(1);
+    expect(current.json().matches[0]).toMatchObject({ status: 'valid', expiresAt: null });
     await db.organization.update({ where: { id: orgA }, data: { active: false } });
-    try { expect((await app.inject({ method: 'GET', url: `/api/public/certificates/${c.publicId}` })).json().status).toBe('unavailable'); }
+    try { expect((await lookup(c.number)).json().matches[0].status).toBe('unavailable'); }
     finally { await db.organization.update({ where: { id: orgA }, data: { active: true } }); }
   });
 });
@@ -2209,7 +2202,7 @@ it('keeps the signed CSRF token stable across tabs without weakening rejection o
 
 describe('preview conflicts and notification retry', () => {
   it('keeps 409 when the batch changes while a preview is rendering (BUG-001)', async () => {
-    const created = await owner.request('POST', `/api/organizations/${orgA}/batches`, { templateVersionId: versionA, eventName: '預覽衝突', records: [{ rowNumber: 2, data: { recipient_name: '預覽學員', recipient_email: email('preview') } }], idempotencyKey: randomUUID() });
+    const created = await owner.request('POST', `/api/organizations/${orgA}/batches`, { templateVersionId: versionA, eventName: '預覽衝突', records: [{ rowNumber: 1, data: { recipient_name: '預覽學員', recipient_email: email('preview'), certificate_number: sn('preview') } }], idempotencyKey: randomUUID() });
     expect(created.statusCode, created.body).toBe(200);
     const batchId = created.json().id;
     const row = await db.batchRow.findFirstOrThrow({ where: { batchId } });
@@ -2278,41 +2271,101 @@ describe('preview conflicts and notification retry', () => {
 });
 
 describe('certificate serial numbers, built-in fields and PDF backgrounds', () => {
-  it('numbers certificates from the organization sequence, only forwards, and keeps numbers on regeneration', async () => {
-    const settingsPath = `/api/organizations/${orgA}/settings/serial`;
-    const current = await owner.request('GET', settingsPath);
-    expect(current.statusCode, current.body).toBe(200);
-    const start = current.json().issued + 100;
-    expect((await designer.request('PUT', settingsPath, { prefix: 'NOPE', digits: 4 })).statusCode).toBe(403);
-    expect((await owner.request('PUT', settingsPath, { prefix: 'bad prefix', digits: 4 })).statusCode).toBe(400);
-    const updated = await owner.request('PUT', settingsPath, { prefix: 'orga', digits: 4, nextSequence: start });
-    expect(updated.statusCode, updated.body).toBe(200);
-    expect(updated.json().nextNumber).toBe(`ORGA-${String(start).padStart(4, '0')}`);
-    expect((await owner.request('PUT', settingsPath, { prefix: 'ORGA', digits: 4, nextSequence: start - 1 })).statusCode).toBe(409);
-    expect(await db.auditLog.count({ where: { organizationId: orgA, action: 'organization.serial_updated' } })).toBeGreaterThan(0);
-    const other = await db.organization.findUniqueOrThrow({ where: { id: orgB } });
-    expect(other.certificatePrefix).toBe('CERT');
+  it('takes serials from the list, numbers recipients from 1, and refuses duplicates, blanks and serials used elsewhere in the organization', async () => {
+    const path = `/api/organizations/${orgA}/batches`;
+    const checked = await owner.request('POST', `${path}/validate`, {
+      templateVersionId: versionA,
+      eventName: '流水號檢查',
+      csv: `recipient_name,recipient_email,certificate_number\n甲,${email('s-a')},${sn('imp-x')}\n乙,${email('s-b')},${sn('imp-x').toLowerCase()}\n丙,${email('s-c')},`,
+    });
+    expect(checked.statusCode, checked.body).toBe(200);
+    const rows = checked.json().rows as { rowNumber: number; errors: { field: string; message: string }[] }[];
+    expect(rows.map((r) => r.rowNumber)).toEqual([1, 2, 3]);
+    expect(rows[0]!.errors).toEqual([]);
+    expect(rows[1]!.errors).toContainEqual({ field: 'certificate_number', message: '與第 1 筆的流水號重複' });
+    expect(rows[2]!.errors).toContainEqual({ field: 'certificate_number', message: '證書流水號必填' });
 
-    const created = await owner.request('POST', `/api/organizations/${orgA}/batches`, {
+    const created = await owner.request('POST', path, {
       templateVersionId: versionA,
       eventName: '流水號活動',
-      csv: `recipient_name,recipient_email\n流水一,${email('serial-1')}\n流水二,${email('serial-2')}`,
+      csv: `recipient_name,recipient_email,certificate_number\n流水一,${email('serial-1')},${sn('imp-1').toLowerCase()}\n流水二,${email('serial-2')},${sn('imp-2')}`,
       idempotencyKey: randomUUID(),
     });
     expect(created.statusCode, created.body).toBe(200);
     const batchId = created.json().id;
-    const rows = await db.batchRow.findMany({ where: { batchId }, orderBy: { rowNumber: 'asc' } });
-    const preview = await owner.request('POST', `/api/organizations/${orgA}/batches/${batchId}/preview`, { rowId: rows[0]!.id });
-    expect(preview.statusCode).toBe(200);
-    // A sample PDF shows the format but does not use up a number.
-    expect((await owner.request('GET', settingsPath)).json().nextSequence).toBe(start);
-    expect((await owner.request('POST', `/api/organizations/${orgA}/batches/${batchId}/generate`)).statusCode).toBe(200);
-    expect((await owner.request('POST', `/api/organizations/${orgA}/batches/${batchId}/generate`)).statusCode).toBe(200);
+    const batchRows = await db.batchRow.findMany({ where: { batchId }, orderBy: { rowNumber: 'asc' } });
+    expect(batchRows.map((r) => r.rowNumber)).toEqual([1, 2]);
+    expect((await owner.request('POST', `${path}/${batchId}/preview`, { rowId: batchRows[0]!.id })).statusCode).toBe(200);
+    // A serial waiting in an event that has not generated yet is already taken.
+    const clash = { templateVersionId: versionA, eventName: '撞號', records: [{ rowNumber: 1, data: { recipient_name: '撞號', recipient_email: email('clash'), certificate_number: sn('imp-1') } }] };
+    const clashCheck = await owner.request('POST', `${path}/validate`, clash);
+    expect(clashCheck.json().rows[0].errors).toContainEqual({ field: 'certificate_number', message: '這個流水號已被其他證書或活動使用' });
+    expect((await owner.request('POST', path, { ...clash, idempotencyKey: randomUUID() })).statusCode).toBe(400);
+    expect((await owner.request('POST', `${path}/${batchId}/generate`)).statusCode).toBe(200);
+    expect((await owner.request('POST', `${path}/${batchId}/generate`)).statusCode).toBe(200);
     const certificates = await db.certificate.findMany({ where: { batchId }, include: { row: true }, orderBy: { row: { rowNumber: 'asc' } } });
-    expect(certificates.map((c) => c.number)).toEqual([0, 1].map((i) => `ORGA-${String(start + i).padStart(4, '0')}`));
-    for (const c of certificates)
-      expect((c.dataSnapshot as Record<string, string>).certificate_number).toBe(c.number);
-    expect((await owner.request('GET', settingsPath)).json().issued).toBe(start + 1);
+    expect(certificates.map((c) => c.number)).toEqual([sn('imp-1'), sn('imp-2')]);
+    for (const c of certificates) expect((c.dataSnapshot as Record<string, string>).certificate_number).toBe(c.number);
+    expect((await owner.request('POST', `${path}/validate`, clash)).json().valid).toBe(false);
+
+    // A cancelled event that never issued gives its serials back.
+    const cancelled = await owner.request('POST', path, { templateVersionId: versionA, eventName: '取消活動', records: [{ rowNumber: 1, data: { recipient_name: '取消', recipient_email: email('cancel-serial'), certificate_number: sn('imp-3') } }], idempotencyKey: randomUUID() });
+    expect(cancelled.statusCode, cancelled.body).toBe(200);
+    expect((await owner.request('POST', `${path}/${cancelled.json().id}/cancel`, { revision: 1, reason: '改期' })).statusCode).toBe(200);
+    expect((await owner.request('POST', `${path}/validate`, { ...clash, records: [{ ...clash.records[0]!, data: { ...clash.records[0]!.data, certificate_number: sn('imp-3') } }] })).json().valid).toBe(true);
+
+    // The database refuses one serial on two different rows of an organization.
+    const other = await db.batchRow.create({ data: { organizationId: orgA, batchId, rowNumber: 99, templateVersionId: versionA, data: {} } });
+    await expect(db.certificate.create({ data: { organizationId: orgA, batchId, rowId: other.id, recipientId: certificates[0]!.recipientId, templateVersionId: versionA, number: sn('imp-1'), dataSnapshot: {} } })).rejects.toThrow();
+    await db.batchRow.delete({ where: { id: other.id } });
+  });
+
+  it('mixes templates in one event, picking each recipient\'s template by name and checking that template\'s fields', async () => {
+    const hours = createDefaultDocument();
+    hours.fields.push({ key: 'hours', label: '時數', type: 'number', required: true });
+    hours.elements[3]!.text = '完成 {{event_name}} 共 {{hours}} 小時';
+    const second = await createPublishedTemplate(orgA, `時數證明 ${runSerial}`, hours);
+    const same = await db.templateVersion.create({ data: { organizationId: orgA, templateId: second.template.id, number: 2, document: json(hours), rendererVersion: '1', assetManifest: { font: { version: FONT_ASSET_VERSION, sha256: FONT_SHA256 }, background: null } } });
+    const path = `/api/organizations/${orgA}/batches`;
+    expect((await owner.request('POST', `${path}/validate`, { templateVersionIds: [second.version.id, same.id], eventName: '同模板兩版', records: [{ rowNumber: 1, data: {} }] })).statusCode).toBe(400);
+    const nameA = (await db.templateVersion.findUniqueOrThrow({ where: { id: versionA }, include: { template: true } })).template.name;
+    const csv = (hoursValue: string) => `recipient_name,recipient_email,certificate_number,template,hours\n結業,${email('mix-1')},${sn('mix-1')},${nameA},\n時數,${email('mix-2')},${sn('mix-2')}, 時數證明 ${runSerial} ,${hoursValue}`;
+    const input = { templateVersionIds: [versionA, second.version.id], eventName: '混合模板' };
+    const missing = await owner.request('POST', `${path}/validate`, { ...input, csv: csv('') });
+    const fine = await owner.request('POST', `${path}/validate`, { ...input, csv: csv('12') });
+    expect(fine.json().valid, JSON.stringify(fine.json().rows.map((r: { errors: unknown }) => r.errors))).toBe(true);
+    expect(missing.json().rows[1].errors.map((e: { field: string }) => e.field)).toContain('hours');
+    expect(missing.json().templates.map((t: { id: string }) => t.id)).toEqual([versionA, second.version.id]);
+    const created = await owner.request('POST', path, { ...input, csv: csv('12'), idempotencyKey: randomUUID() });
+    expect(created.statusCode, created.body).toBe(200);
+    const batchId = created.json().id;
+    const rows = await db.batchRow.findMany({ where: { batchId }, orderBy: { rowNumber: 'asc' } });
+    expect(rows.map((r) => r.templateVersionId)).toEqual([versionA, second.version.id]);
+    expect(rows[1]!.data).not.toHaveProperty('template');
+    const preview = await owner.request('POST', `${path}/${batchId}/preview`, { rowId: rows[1]!.id });
+    expect(preview.statusCode, preview.body.slice(0, 200)).toBe(200);
+    expect((await owner.request('POST', `${path}/${batchId}/generate`)).statusCode).toBe(200);
+    const certificates = await db.certificate.findMany({ where: { batchId }, include: { row: true }, orderBy: { row: { rowNumber: 'asc' } } });
+    expect(certificates.map((c) => c.templateVersionId)).toEqual([versionA, second.version.id]);
+    const detail = (await owner.request('GET', `${path}/${batchId}`)).json();
+    expect(detail.templates.map((t: { name: string }) => t.name)).toEqual([nameA, `時數證明 ${runSerial}`]);
+    expect(detail.rows[1].templateName).toBe(`時數證明 ${runSerial}`);
+    expect(JSON.stringify(detail)).not.toContain('verificationUrl');
+  });
+
+  it('gives each organization a short editable workspace address', async () => {
+    const path = `/api/organizations/${orgA}/settings`;
+    const slug = `t-${runSerial.toLowerCase()}`;
+    expect((await designer.request('PUT', path, { slug })).statusCode).toBe(403);
+    for (const bad of ['login', 'A', '-abc', 'has space']) expect((await owner.request('PUT', path, { slug: bad })).statusCode).toBe(400);
+    const saved = await owner.request('PUT', path, { slug: slug.toUpperCase() });
+    expect(saved.statusCode, saved.body).toBe(200);
+    expect(saved.json().slug).toBe(slug);
+    const me = (await owner.request('GET', '/api/auth/me')).json();
+    expect(me.memberships.find((m: { organization: { id: string } }) => m.organization.id === orgA).organization.slug).toBe(slug);
+    await db.organization.update({ where: { id: orgB }, data: { slug: `${slug}-b` } });
+    expect((await owner.request('PUT', path, { slug: `${slug}-b` })).statusCode).toBe(409);
+    expect(await db.auditLog.count({ where: { organizationId: orgA, action: 'organization.slug_updated' } })).toBe(1);
   });
 
   it('adds the built-in serial field to every saved template and accepts custom fields', async () => {
@@ -2333,7 +2386,7 @@ describe('certificate serial numbers, built-in fields and PDF backgrounds', () =
     const created = await owner.request('POST', `/api/organizations/${orgA}/batches`, {
       templateVersionId: versionA,
       eventName: 'PDF 背景',
-      csv: `recipient_name,recipient_email\n背景,${email('pdf-bg')}`,
+      csv: `recipient_name,recipient_email,certificate_number\n背景,${email('pdf-bg')},${sn('bg')}`,
       idempotencyKey: randomUUID(),
     });
     const row = await db.batchRow.findFirstOrThrow({ where: { batchId: created.json().id } });
@@ -2360,7 +2413,7 @@ describe('certificate serial numbers, built-in fields and PDF backgrounds', () =
     const onVector = await owner.request('POST', `/api/organizations/${orgA}/batches`, {
       templateVersionId: version.json().id,
       eventName: '向量背景',
-      csv: `recipient_name,recipient_email\n向量,${email('pdf-vector')}`,
+      csv: `recipient_name,recipient_email,certificate_number\n向量,${email('pdf-vector')},${sn('vector')}`,
       idempotencyKey: randomUUID(),
     });
     expect(onVector.statusCode, onVector.body).toBe(200);

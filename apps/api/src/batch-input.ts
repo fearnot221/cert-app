@@ -51,10 +51,10 @@ export async function takenSerials(
   ownBatchId?: string,
 ) {
   if (!serials.length) return new Set<string>();
-  const certificates = await client.certificate.findMany({
-    where: { organizationId: org, number: { in: serials }, ...(ownBatchId ? { batchId: { not: ownBatchId } } : {}) },
-    select: { number: true },
-  });
+  // Serials are compared upper-cased: certificates issued before import normalisation may be lower-case.
+  const certificates = await client.$queryRaw<{ number: string }[]>`
+    SELECT upper("number") AS number FROM "Certificate"
+    WHERE "organizationId" = ${org} AND "batchId" <> ${ownBatchId ?? ""} AND upper("number") = ANY(${serials})`;
   const rows = await client.$queryRaw<{ serial: string }[]>`
     SELECT r.data->>'certificate_number' AS serial FROM "BatchRow" r
     JOIN "IssuanceBatch" b ON b.id = r."batchId"

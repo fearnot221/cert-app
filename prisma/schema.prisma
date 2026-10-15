@@ -206,7 +206,6 @@ model Certificate {
   @@index([organizationId,expiresAt])
   @@unique([rowId,edition])
   @@index([organizationId,number])
-  @@index([number])
 }
 model EmailConnection {
   id String @id @default(uuid())

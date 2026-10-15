@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { db, expiryInstant, expiryDateSchema } from '@cert/domain';
+import { normalizeSerial } from '@cert/contracts';
 import { checkRecords, loadBatchTemplates, recordsInput } from './batch-input.js';
 import { authorize, fail } from './auth.js';
 const scope = z.object({ org: z.uuid(), id: z.uuid() });
@@ -37,7 +38,7 @@ export async function registerLifecycleRoutes(app: FastifyInstance) {
       const result = await checkRecords(tx, org, templates, { records: body.records }, id);
       if (!result.valid) fail(400, `名單有錯誤：${result.rows.flatMap(r => r.errors.map(e => `第 ${r.rowNumber} 筆 ${e.message}`)).slice(0, 3).join('；')}`);
       await tx.batchRow.deleteMany({ where: { batchId: id, organizationId: org } });
-      const updated = await tx.issuanceBatch.update({ where: { id }, data: { expiresAt: body.expiresOn === undefined ? b.expiresAt : expiryInstant(body.expiresOn), eventName: body.eventName, revision: { increment: 1 }, previewedAt: null, rows: { create: result.rows.map(r => ({ rowNumber: r.rowNumber, templateVersionId: r.templateVersionId!, organizationId: org, data: json(r.data) })) } } });
+      const updated = await tx.issuanceBatch.update({ where: { id }, data: { expiresAt: body.expiresOn === undefined ? b.expiresAt : expiryInstant(body.expiresOn), eventName: body.eventName, revision: { increment: 1 }, previewedAt: null, rows: { create: result.rows.map(r => ({ rowNumber: r.rowNumber, templateVersionId: r.templateVersionId!, data: json(r.data) })) } } });
       await log(tx, org, user, 'batch.edited', id, id, { reason: body.reason, before: { expiresAt: b.expiresAt?.toISOString() ?? null, eventName: b.eventName, revision: b.revision, records: b.rows.map(r => ({ rowNumber: r.rowNumber, templateVersionId: r.templateVersionId, data: r.data })) }, after: { expiresAt: updated.expiresAt?.toISOString() ?? null, eventName: updated.eventName, revision: updated.revision, records: body.records } });
       return updated;
     });
@@ -93,7 +94,7 @@ export async function registerLifecycleRoutes(app: FastifyInstance) {
         // The reissue keeps its serial unless staff change it; another row's serial is still refused.
         const checked = await checkRecords(tx, org, templates, { records: [{ rowNumber: row.rowNumber, templateVersionId: c.templateVersionId, data: { certificate_number: c.number, ...data } }] }, b.id);
         const clean = checked.rows[0]!.data;
-        const otherRow = await tx.certificate.findFirst({ where: { organizationId: org, number: clean.certificate_number!, rowId: { not: row.id } }, select: { id: true } })
+        const otherRow = (await tx.$queryRaw<{ id: string }[]>`SELECT id FROM "Certificate" WHERE "organizationId" = ${org} AND upper("number") = ${clean.certificate_number!} AND "rowId" <> ${row.id} LIMIT 1`)[0]
           ?? await tx.batchRow.findFirst({ where: { batchId: b.id, id: { not: row.id }, data: { path: ['certificate_number'], equals: clean.certificate_number! } }, select: { id: true } });
         if (otherRow) fail(409, `流水號 ${clean.certificate_number} 已被其他證書使用`);
         if (checked.rows[0]!.errors.length) fail(400, `請檢查補發資料：${checked.rows[0]!.errors.map(e => e.message).join('；')}`);
@@ -101,7 +102,8 @@ export async function registerLifecycleRoutes(app: FastifyInstance) {
         const recipient = await tx.recipient.upsert({ where: { organizationId_email: { organizationId: org, email: clean.recipient_email! } }, create: { organizationId: org, userId: account.id, email: account.email, name: clean.recipient_name! }, update: {} });
         const nextId = randomUUID();
         const publicId = randomUUID();
-        const number = clean.certificate_number!;
+        // Certificates from before serials were imported may differ only in letter case.
+        const number = normalizeSerial(c.number) === clean.certificate_number ? c.number : clean.certificate_number!;
         // Same serial and password as before, so the recipient's email still works for the corrected PDF.
         const next = await tx.certificate.create({ data: { id: nextId, publicId, accessKeyHash: number === c.number ? c.accessKeyHash : null, expiresAt: body.expiresOn === undefined ? c.expiresAt : expiryInstant(body.expiresOn), organizationId: org, batchId: b.id, rowId: c.rowId, edition: c.edition + 1, previousCertificateId: c.id, recipientId: recipient.id, templateVersionId: c.templateVersionId, number, dataSnapshot: json({ ...c.dataSnapshot as object, ...clean, organization_name: (c.dataSnapshot as Record<string,string>).organization_name, event_name: (c.dataSnapshot as Record<string,string>).event_name, certificate_number: number }) } });
         await tx.certificate.update({ where: { id: c.id }, data: { status: c.status === 'revoked' ? 'revoked' : 'superseded' } });

@@ -8,8 +8,10 @@ export async function registerVerificationRoutes(app: FastifyInstance) {
   const serialInput = z.string().max(200).transform(normalizeSerial).pipe(z.string().min(1, '請輸入證書流水號').max(64));
   /** The newest edition of each row that issued this serial; a reissue keeps the serial. */
   async function currentBySerial(serial: string) {
+    // Imported serials are stored upper-case; older certificates may not be, so compare upper-cased.
+    const ids = await db.$queryRaw<{ id: string }[]>`SELECT id FROM "Certificate" WHERE upper("number") = ${serial} LIMIT 200`;
     const all = await db.certificate.findMany({
-      where: { number: serial, generationStatus: 'success' },
+      where: { id: { in: ids.map((r) => r.id) }, generationStatus: 'success' },
       include: { organization: true },
       orderBy: { edition: 'desc' },
       take: 50,
