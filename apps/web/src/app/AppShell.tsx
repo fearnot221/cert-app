@@ -120,9 +120,21 @@ export function AccountLayout() {
 
 export function WorkspaceLayout() {
   const { orgSlug } = useParams();
-  const { session } = useSession();
+  const { session, refresh } = useSession();
   const membership = findMembership(session, orgSlug);
-  if (!membership) return <Navigate to={homePath(session)} replace />;
+  // An unknown address may be one that was just renamed: reload the session once before giving up on it.
+  const [checked, setChecked] = useState<string>();
+  useEffect(() => {
+    if (membership || checked === orgSlug) return;
+    let live = true;
+    void refresh()
+      .catch(() => null)
+      .finally(() => live && setChecked(orgSlug));
+    return () => {
+      live = false;
+    };
+  }, [membership, checked, orgSlug, refresh]);
+  if (!membership) return checked === orgSlug ? <Navigate to={homePath(session)} replace /> : null;
   return (
     <WorkspaceContext.Provider
       key={membership.organization.id}

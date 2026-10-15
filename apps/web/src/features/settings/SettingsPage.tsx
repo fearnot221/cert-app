@@ -3,7 +3,7 @@ import { useNavigate } from "react-router";
 import { api, orgPath } from "../../lib/api";
 import { useAction, useResource } from "../../lib/hooks";
 import { useWorkspace } from "../../app/AppShell";
-import { useSession, workspacePath } from "../../app/session";
+import { workspacePath } from "../../app/session";
 import { Button } from "../../ui/Button";
 import { Loading, LoadError, Notice, PageHeader } from "../../ui/feedback";
 
@@ -13,7 +13,6 @@ const reserved = new Set(["o", "api", "login", "activate", "reset-password", "ve
 /** Organization settings: the short address its workspace lives at. */
 export function SettingsPage() {
   const { organization, permissions } = useWorkspace();
-  const { refresh } = useSession();
   const navigate = useNavigate();
   const path = orgPath(organization.id, "/settings");
   const settings = useResource<Settings>(path);
@@ -30,7 +29,7 @@ export function SettingsPage() {
     event.preventDefault();
     void action.run(async () => {
       const saved = await api<Settings>(path, { method: "PUT", body: JSON.stringify({ slug }) });
-      await refresh();
+      // The workspace reloads the session when it meets the new address.
       navigate(workspacePath(saved, "settings"), { replace: true });
     });
   };
