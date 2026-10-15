@@ -67,9 +67,37 @@ docker compose --env-file /secure/cert-app-production.env \
   -p cert-app-production -f compose.yaml -f compose.production.yaml up --build -d
 ```
 
-overlay 移除 DB／Redis 的 host ports，Mailpit 需明確 development profile 才啟用，`MAIL_MODE=disabled`。它不會讓正式寄信變成可用；Phase 3 完成前正式通知功能保持停用。Coolify Compose parser 是否完整支援 `!reset` 必須在所用版本驗證；如不支援，使用本地 `docker compose ... config` 產出的合併配置建立私有部署文件，勿將輸出的 secrets 提交。
+overlay 移除 DB／Redis 的 host ports，Mailpit 需明確 development profile 才啟用。寄信預設 `MAIL_MODE=disabled`，設定 SMTP 後改為 `smtp`。Coolify Compose parser 是否完整支援 `!reset` 必須在所用版本驗證；如不支援，使用本地 `docker compose ... config` 產出的合併配置建立私有部署文件，勿將輸出的 secrets 提交。
 
 若 Coolify proxy 需連接 web，依該主機設定加入其 proxy network；不將 api／worker 加入外部 ingress。設定持久 volumes、備份目的地、資源限制與實際主機防火牆。首次正式管理帳號建立流程及 MFA 完成前不能開放公開註冊或部署 seed 管理員。
+
+## 單機直接上線（無主機反代，例：cert.fearnot.tw）
+
+主機前面沒有 Coolify／Traefik 等反向代理時，production overlay 內的 `caddy` 服務直接佔用主機 80／443，自動向 Let's Encrypt 取得 HTTPS 憑證並轉給 web（nginx）。上線前 DNS A／AAAA 記錄須指向主機，防火牆開放 80、443（含 443/udp）。若之後改放 Coolify 等反代，移除 `caddy` 服務並把 web 接到該反代的網路。
+
+在 `/secure/cert-app-production.env` 至少設定：
+
+```bash
+APP_DOMAIN=cert.fearnot.tw
+DOCKER_APP_ORIGIN=https://cert.fearnot.tw
+POSTGRES_PASSWORD=<隨機長字串>
+SESSION_SECRET=<至少 32 字元隨機字串>
+```
+
+要寄出下載密碼信，再加上 `MAIL_MODE=smtp` 與 SMTP 設定，見 [EMAIL_SETUP.md](EMAIL_SETUP.md#正式寄信smtp)。未設定時寄信維持停用，收件人拿不到下載密碼。`create-admin` 會一併建立組織的寄件身分，執行時帶上同一個 `MAIL_FROM`。
+
+API 以 `TRUST_PROXY=loopback,uniquelocal` 信任 Docker 私有網段的 Caddy／nginx，限流因此依訪客真實 IP 計算；直接連到 API 的公網位址所帶 X-Forwarded-For 不被採信。本機 `pnpm dev` 不設定此值。
+
+首次建立組織與擁有者帳號（seed 在 production 會拒絕執行）：
+
+```bash
+docker compose --env-file /secure/cert-app-production.env -p cert-app-production \
+  -f compose.yaml -f compose.production.yaml run --rm \
+  -e ADMIN_EMAIL=you@example.com -e ADMIN_PASSWORD='<12 字元以上>' \
+  -e ADMIN_ORG_NAME='組織名稱' -e ADMIN_ORG_SLUG=sta create-admin
+```
+
+指令只會新建組織；同名組織已存在或網址代稱被占用時拒絕，既有帳號的密碼不會被覆寫。完成後勿把 ADMIN_PASSWORD 留在 env 檔或 shell 歷史。
 
 ## CI 與 PR Preview
 

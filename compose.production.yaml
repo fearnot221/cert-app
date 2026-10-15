@@ -1,5 +1,13 @@
-# Preparation overlay, not a claim of production readiness. Requires Docker Compose >=2.24.4.
-# Phase 1 intentionally keeps all external mail disabled.
+# Production overlay. Requires Docker Compose >=2.24.4.
+# Mail stays disabled unless MAIL_MODE=smtp and the SMTP_* / MAIL_FROM secrets are set.
+x-mail: &mail
+  MAIL_MODE: ${MAIL_MODE:-disabled}
+  SMTP_HOST: ${SMTP_HOST:-}
+  SMTP_PORT: ${SMTP_PORT:-465}
+  SMTP_USER: ${SMTP_USER:-}
+  SMTP_PASS: ${SMTP_PASS:-}
+  MAIL_FROM: ${MAIL_FROM:-}
+
 services:
   postgres:
     environment:
@@ -18,22 +26,54 @@ services:
       MAIL_MODE: disabled
   api:
     environment:
+      <<: *mail
       NODE_ENV: production
       APP_ORIGIN: ${DOCKER_APP_ORIGIN:?Set the canonical HTTPS origin}
       SESSION_SECRET: ${SESSION_SECRET:?Set a private session secret}
-      MAIL_MODE: disabled
   worker:
+    # Needs outbound access to the SMTP provider; the backend network has none.
+    networks: [backend, egress]
+    environment:
+      <<: *mail
+      NODE_ENV: production
+      APP_ORIGIN: ${DOCKER_APP_ORIGIN:?Set the canonical HTTPS origin}
+      SESSION_SECRET: ${SESSION_SECRET:?Set a private session secret}
+  web:
+    ports: !reset []
+  caddy:
+    # Terminates HTTPS for APP_DOMAIN with an automatic Let's Encrypt certificate.
+    image: caddy:2.10.2-alpine
+    command: ["caddy", "reverse-proxy", "--from", "${APP_DOMAIN:?Set the public domain, e.g. cert.example.com}", "--to", "web:8080"]
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      web:
+        condition: service_healthy
+    networks: [frontend]
+    restart: unless-stopped
+  create-admin:
     environment:
       NODE_ENV: production
       APP_ORIGIN: ${DOCKER_APP_ORIGIN:?Set the canonical HTTPS origin}
       SESSION_SECRET: ${SESSION_SECRET:?Set a private session secret}
       MAIL_MODE: disabled
+      MAIL_FROM: ${MAIL_FROM:-}
   seed:
     environment:
       NODE_ENV: production
       MAIL_MODE: disabled
       SEED_ADMIN_PASSWORD: ''
 
+volumes:
+  caddy-data:
+  caddy-config:
+
 networks:
   backend:
     internal: true
+  egress:

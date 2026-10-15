@@ -13,6 +13,8 @@ x-app-environment: &app-environment
   SMTP_HOST: mailpit
   SMTP_PORT: 1025
   WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
+  # nginx (and Caddy in production) reach the API from private Docker addresses.
+  TRUST_PROXY: loopback,uniquelocal
 
 services:
   postgres:
@@ -108,6 +110,24 @@ services:
       SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-admin@example.test}
       SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-}
     command: ["pnpm", "exec", "tsx", "prisma/seed.ts"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks: [backend]
+    restart: "no"
+
+  create-admin:
+    profiles: [tooling]
+    build:
+      context: .
+      target: runtime
+    environment:
+      <<: *app-environment
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      ADMIN_ORG_NAME: ${ADMIN_ORG_NAME:-}
+      ADMIN_ORG_SLUG: ${ADMIN_ORG_SLUG:-}
+    command: ["pnpm", "exec", "tsx", "prisma/create-admin.ts"]
     depends_on:
       migrate:
         condition: service_completed_successfully

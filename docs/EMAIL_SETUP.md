@@ -1,6 +1,42 @@
 # 寄件設定與驗證
 
-查核日期：2026-10-15。**Phase 1 僅啟用 Mailpit；正式 SMTP、Google Relay 和設定精靈仍待 Phase 3。** 本文件的外部設定流程不表示已完成串接。
+查核日期：2026-10-15。本機用 Mailpit；正式環境可用 `MAIL_MODE=smtp` 透過一個已驗證的寄件網域寄出（見下節）。多組織各自網域、Google Relay 和設定精靈仍待 Phase 3。
+
+## 正式寄信（SMTP）
+
+任何支援帳密登入與 TLS 的 SMTP 服務都可用，只要設定 env，不需改程式。網域 DNS 可以留在 Cloudflare 免費方案，在那裡加上服務商要求的 SPF／DKIM 記錄即可。
+
+**Cloudflare 免費方案不能寄給一般收件人**：Email Routing 只收信；[Email Sending](https://developers.cloudflare.com/email-service/platform/pricing/) 寄任意收件人需要 Workers Paid，免費方案只能寄給自己驗證過的信箱。
+
+| 服務 | 免費額度（2026-10 查核，以官方為準） | SMTP 設定 |
+| --- | --- | --- |
+| Resend（建議） | 每月 3,000 封、每日 100 封 | `smtp.resend.com`，port 465，帳號 `resend`，密碼為 API key |
+| Brevo | 每日 300 封 | `smtp-relay.brevo.com`，port 587（STARTTLS），帳號與 SMTP key 見後台 |
+| Gmail 個人帳號 | 每日 500 封（滾動 24 小時），超過會暫停寄信最多 24 小時 | `smtp.gmail.com`，port 465，帳號為完整 Gmail 地址，密碼為[應用程式密碼](https://support.google.com/accounts/answer/185833)（需開啟兩步驟驗證）；`MAIL_FROM` 必須是同一個 Gmail 地址 |
+| Cloudflare Email Sending | 需 Workers Paid（每月 USD 5，含 3,000 封） | `smtp.mx.cloudflare.net`，port 465，帳號 `api_token`，密碼為 API token |
+
+以 Resend 為例：
+
+1. Resend 後台加入寄件網域（例：fearnot.tw），把它給的 DNS 記錄加到 Cloudflare DNS（記錄設為「DNS only」，不經代理），等網域驗證通過。
+2. 建立只有寄信權限的 API key。
+3. 在 production env 檔設定：
+
+```bash
+MAIL_MODE=smtp
+SMTP_HOST=smtp.resend.com
+SMTP_PORT=465
+SMTP_USER=resend
+SMTP_PASS=<API key>
+MAIL_FROM=cert@fearnot.tw
+```
+
+4. 重新啟動 api／worker，用自己的信箱跑一次發送，檢查原始標頭的 SPF、DKIM、DMARC 為 pass。
+
+每日額度用完時服務商會暫時拒收：系統重試數次後標為失敗，隔天可在後台對失敗通知重新排入。單一活動收件人超過每日額度時，需分天寄出或改用付費方案。
+
+`MAIL_MODE=smtp` 一律走 TLS（465 隱含 TLS，其他 port 強制 STARTTLS）並驗證憑證；可見 From 固定為 `MAIL_FROM`，組織只能決定顯示名稱。worker 在 production overlay 多接一個可對外的 `egress` 網路以連到 SMTP；api、DB、Redis 仍在內部網路。
+
+不建議自架郵件伺服器：多數主機商與家用網路封鎖對外 port 25，新 IP 沒有反解與信譽時 Gmail／Outlook 常直接拒收或進垃圾信。
 
 ## 本地實際郵件
 
@@ -8,7 +44,7 @@
 
 產製完成後，管理者另外確認發送。新帳號應收到啟用連結，既有帳號只收到領取通知；啟用不授予後台權限，不重設既有密碼。用瀏覽器開啟連結時不消耗 token，設定密碼的 POST 才原子消耗。
 
-`MAIL_MODE=disabled` 明確阻止寄信。production 啟動必須使用 disabled，直到具授權的正式 SMTP provider 和防護完成；不能把 Mailpit 的成功當成外部投遞驗證。
+`MAIL_MODE=disabled` 明確阻止寄信。production 只接受 `smtp` 或 `disabled`，不接受 Mailpit；不能把 Mailpit 的成功當成外部投遞驗證。
 
 ## 模型責任（完整目標）
 

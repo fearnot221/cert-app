@@ -8,6 +8,7 @@ import {
   db,
   storage,
   encodeCsv, certificateStatus, expiryDateSchema, expiryInstant, unexpiredWhere,
+  mailSender,
 } from "@cert/domain";
 import {
   TemplateDocumentSchema,
@@ -820,7 +821,7 @@ export async function registerRoutes(app: FastifyInstance) {
     const { org, id } = params(req);
     const { user } = await authorize(req, org, "mail.send");
     await authorize(req, org, "certificates.issue");
-    if (config.MAIL_MODE !== "mailpit") fail(409, "寄信尚未啟用");
+    if (config.MAIL_MODE === "disabled") fail(409, "寄信尚未啟用");
     const body = z
       .object({ senderIdentityId: z.uuid() })
       .strict()
@@ -830,10 +831,10 @@ export async function registerRoutes(app: FastifyInstance) {
         id: body.senderIdentityId,
         organizationId: org,
         active: true,
-        status: "development",
+        status: mailSender.status,
         grant: {
           active: true,
-          connection: { active: true, provider: "mailpit" },
+          connection: { active: true, provider: mailSender.provider },
         },
       },
     });
@@ -909,7 +910,7 @@ export async function registerRoutes(app: FastifyInstance) {
     const { org, id } = params(req);
     const { user } = await authorize(req, org, "mail.send");
     await authorize(req, org, "certificates.issue");
-    if (config.MAIL_MODE !== "mailpit") fail(409, "寄信尚未啟用");
+    if (config.MAIL_MODE === "disabled") fail(409, "寄信尚未啟用");
     const body = z
       .object({ senderIdentityId: z.uuid(), reason: z.string().trim().min(1).max(500) })
       .strict()
@@ -919,10 +920,10 @@ export async function registerRoutes(app: FastifyInstance) {
         id: body.senderIdentityId,
         organizationId: org,
         active: true,
-        status: "development",
+        status: mailSender.status,
         grant: {
           active: true,
-          connection: { active: true, provider: "mailpit" },
+          connection: { active: true, provider: mailSender.provider },
         },
       },
     });

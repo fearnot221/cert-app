@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { emailProvider } from "./email.js";
+import { emailProvider, mailSender } from "./email.js";
 import { Pool } from "pg";
 import { renderVersionPdf } from "./rendering.js";
 import { config } from "@cert/config";
@@ -171,13 +171,13 @@ async function processMailLocked(
   }
   const sender = delivery.senderIdentity;
   if (
-    config.MAIL_MODE !== "mailpit" ||
+    config.MAIL_MODE === "disabled" ||
     !delivery.organization.active ||
     !sender.active ||
-    sender.status !== "development" ||
+    sender.status !== mailSender.status ||
     !sender.grant.active ||
     !sender.grant.connection.active ||
-    sender.grant.connection.provider !== "mailpit" ||
+    sender.grant.connection.provider !== mailSender.provider ||
     delivery.certificate.generationStatus !== "success" ||
     certificateStatus(delivery.certificate) !== "valid"
   ) {
@@ -212,7 +212,6 @@ async function processMailLocked(
   const link = `${new URL(config.APP_ORIGIN).origin}/download?serial=${encodeURIComponent(serial)}`;
   const text = `${data.recipient_name} 您好：\n\n您的證書已完成。請開啟下方連結，輸入證書流水號與密碼下載 PDF，不需要註冊帳號。\n\n組織：${delivery.organization.name}\n活動：${data.event_name}\n證書流水號：${serial}\n下載密碼：${password}\n\n${link}\n\n密碼只在這封信中提供，請妥善保存；若之後收到新的通知信，請改用新信中的密碼。如未預期收到此信，請聯絡發證單位。`;
   try {
-    // This adapter is only for the local Mailpit sink. Phase3 production SMTP requires TLS and verified identities.
     const result = await emailProvider.send({
       from: { name: sender.displayName, address: sender.fromAddress },
       to: delivery.toAddress,
