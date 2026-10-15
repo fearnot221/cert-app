@@ -42,8 +42,8 @@ export function CreateBatchPage() {
   );
   const [expiresOn, setExpiresOn] = useState("");
   const [eventName, setEventName] = useState("");
-  /** Selected version per template id; one event can use several templates. */
-  const [picked, setPicked] = useState<Record<string, string>>({});
+  /** Select templates, always using each template's latest published version. */
+  const [picked, setPicked] = useState<Record<string, boolean>>({});
   const [mode, setMode] = useState<"file" | "paste" | "manual">("file");
   const [csv, setCsv] = useState("");
   const [sheets, setSheets] = useState<Sheet[]>([]);
@@ -60,7 +60,8 @@ export function CreateBatchPage() {
   const idempotencyKey = useRef(crypto.randomUUID());
   const templateList = templates.data?.items.filter((t) => t.versions?.length) ?? [];
   const selected = templateList.flatMap((t) => {
-    const version = t.versions.find((v) => v.id === picked[t.id]);
+    // The API returns published versions ordered by descending version number.
+    const version = picked[t.id] ? t.versions[0] : undefined;
     return version ? [{ ...version, templateName: t.name }] : [];
   });
   const templateVersionIds = selected.map((v) => v.id);
@@ -240,7 +241,7 @@ export function CreateBatchPage() {
         <fieldset className="template-picker" disabled={templates.loading || action.busy}>
           <legend>證書模板</legend>
           <p className="field-help">
-            可以選多個。選兩個以上時，名單需要一欄「模板」，填入每位收件人要用的模板名稱。
+            統一使用最新已發布版本，可以選多個。選兩個以上時，名單需要一欄「模板」，填入每位收件人要用的模板名稱。
           </p>
           <ul>
             {templateList.map((t) => {
@@ -254,7 +255,7 @@ export function CreateBatchPage() {
                       onChange={(e) => {
                         setPicked((current) => {
                           const next = { ...current };
-                          if (e.target.checked) next[t.id] = t.versions[0]!.id;
+                          if (e.target.checked) next[t.id] = true;
                           else delete next[t.id];
                           return next;
                         });
@@ -264,19 +265,6 @@ export function CreateBatchPage() {
                     />
                     <span className="template-picker-name">{t.name}</span>
                   </label>
-                  {on && t.versions.length > 1 ? (
-                    <Select
-                      label={`${t.name}的版本`}
-                      value={picked[t.id]!}
-                      onChange={(value) => {
-                        setPicked((current) => ({ ...current, [t.id]: value }));
-                        invalidate();
-                      }}
-                      options={t.versions.map((v) => ({ value: v.id, label: `第 ${v.number} 版` }))}
-                    />
-                  ) : (
-                    <span className="template-picker-version">第 {t.versions[0]!.number} 版</span>
-                  )}
                 </li>
               );
             })}

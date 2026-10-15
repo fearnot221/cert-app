@@ -764,10 +764,9 @@ details > summary {
 .template-picker li {
   display: flex;
   align-items: center;
-  gap: 12px;
-  min-height: 52px;
-  padding: 6px 8px 6px 16px;
-  border-radius: var(--radius-pill);
+  min-width: 0;
+  max-width: 100%;
+  border-radius: var(--radius-control);
   background: var(--color-surface);
   transition: background-color 160ms var(--ease-out);
 }
@@ -775,10 +774,16 @@ details > summary {
   background: var(--color-issue-soft);
 }
 .template-picker-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
   font-weight: 500;
 }
-.template-picker-version {
-  padding-right: 10px;
-  font-size: 14px;
-  color: var(--color-muted);
+.template-picker .check {
+  min-width: 0;
+  min-height: 48px;
+  width: 100%;
+  padding: 12px 16px;
+}
+.template-picker .check input {
+  flex-shrink: 0;
 }
