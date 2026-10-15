@@ -1,10 +1,11 @@
 import { createBrowserRouter, Navigate, Outlet, ScrollRestoration, useLocation, useRouteError } from "react-router";
 import { homePath, useSession } from "./session";
-import { AccountLayout, WorkspaceLayout, type RouteHandle } from "./AppShell";
+import { AccountLayout, LegacyWorkspaceRedirect, WorkspaceLayout, type RouteHandle } from "./AppShell";
 import { Loading, LoadError, Wordmark } from "../ui/feedback";
 import { LandingPage } from "../features/landing/LandingPage";
 import { AuthPage } from "../features/auth/AuthPage";
-import { VerificationPage } from "../features/verification/VerificationPage";
+import { SerialCheckPage } from "../features/verification/SerialCheckPage";
+import { DownloadPage } from "../features/verification/DownloadPage";
 import { MyCertificatesPage } from "../features/recipient/MyCertificatesPage";
 import { TemplatesPage } from "../features/templates/TemplatesPage";
 import { TemplateEditorPage } from "../features/templates/TemplateEditorPage";
@@ -84,7 +85,9 @@ export const router = createBrowserRouter([
       { path: "/login", element: <AuthPage key="login" mode="login" /> },
       { path: "/activate", element: <AuthPage key="activation" mode="activation" /> },
       { path: "/reset-password", element: <AuthPage key="reset" mode="reset" /> },
-      { path: "/verify/:publicId", element: <VerificationPage /> },
+      { path: "/verify", element: <SerialCheckPage /> },
+      { path: "/verify/:serial", element: <SerialCheckPage /> },
+      { path: "/download", element: <DownloadPage /> },
       {
         element: <RequireSession />,
         children: [
@@ -93,7 +96,11 @@ export const router = createBrowserRouter([
           { path: "/my-certificates", element: <Navigate to="/me" replace /> },
           { element: <AccountLayout />, children: [{ path: "/me", element: <MyCertificatesPage /> }] },
           {
-            path: "/o/:orgId",
+            path: "/o/:orgId/*",
+            element: <LegacyWorkspaceRedirect />,
+          },
+          {
+            path: "/:orgSlug",
             element: <WorkspaceLayout />,
             children: [
               { index: true, element: <Navigate to="templates" replace /> },

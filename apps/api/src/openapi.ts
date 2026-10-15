@@ -116,7 +116,7 @@ export const apiDocumentation: SwaggerTransform = ({ schema, url, route }) => {
             ? "資產"
             : "組織";
   const publicRoute =
-    /^\/api\/(auth\/(csrf|login|activate|resend-activation|forgot-password|reset-password)|public\/certificates\/|health|fonts\/|openapi)/.test(
+    /^\/api\/(auth\/(csrf|login|activate|resend-activation|forgot-password|reset-password)|public\/|health|fonts\/|openapi)/.test(
       url,
     );
   const result: typeof schema = {

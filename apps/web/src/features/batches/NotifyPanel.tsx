@@ -138,7 +138,7 @@ batch.deliveries?.filter((d) => retryableStatuses.includes(d.status)).length ?? 
             <p>
               {organization.name} 已發給你「{batch.eventName}」證書。
             </p>
-            <p>新帳號會收到一次性啟用連結；已有帳號會收到登入領取通知。</p>
+            <p>每封信附上該證書的流水號、一組新的下載密碼與下載頁連結，收件人不必註冊即可下載。密碼只寄出這一次，系統只保留雜湊值；寄出新通知會換成新密碼。</p>
           </div>
           <div className="btn-row">
             <Button variant="quiet" onClick={() => setConfirming(false)} disabled={action.busy}>

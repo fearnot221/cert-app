@@ -1,15 +1,14 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { Link, useNavigate } from "react-router";
-import { ArrowRightIcon } from "@radix-ui/react-icons";
+import { useEffect, useRef, type ReactNode } from "react";
+import { Link } from "react-router";
 import { createDefaultDocument } from "@cert/contracts";
 import { CertificateView } from "@cert/renderer";
 import { homePath, useSession } from "../../app/session";
 import { Wordmark } from "../../ui/feedback";
 import { TemplateThumb } from "../templates/TemplateThumb";
 import { useReveal } from "./useReveal";
+import { SerialForm } from "../verification/SerialCheckPage";
 
 const sampleDocument = createDefaultDocument();
-const { verificationQr: _qr, ...documentWithoutQr } = sampleDocument;
 const placeholders = Object.fromEntries(
   ["recipient_name", "organization_name", "event_name", "issue_date", "certificate_number"].map((key) => [key, `{{${key}}}`]),
 );
@@ -19,92 +18,41 @@ const filled = {
   organization_name: "知行培訓中心",
   event_name: "2026 秋季專業培訓",
   issue_date: "2026-10-15",
-  certificate_number: "CF-2026-000128",
+  certificate_number: "STA-2026-0128",
 };
 
-/** The same certificate, four moments in its life: template, list, PDF, verified. */
+/** The same certificate, four moments in its life: template, list, PDF, download. */
 const moments: { clause: ReactNode; data: Record<string, string>; tag?: string; field: string }[] = [
-  { clause: <>先在模板放好<br />姓名、活動與日期欄位。</>, data: placeholders, field: "moment-issue" },
-  { clause: <>再匯入名單，<br />每一列帶入一位收件人。</>, data: filled, tag: "名單第 2 列", field: "moment-verify" },
-  { clause: <>然後逐人產製 PDF，<br />寄出領取通知。</>, data: filled, tag: "PDF 已產製", field: "moment-verify-strong" },
-  { clause: <>最後，任何人掃 QR<br />都能查到真偽。</>, data: filled, tag: "證書目前有效", field: "moment-ink" },
+  { clause: <>先在模板放好<br />姓名、流水號與日期欄位。</>, data: placeholders, field: "moment-issue" },
+  { clause: <>再匯入名單，每一列<br />帶入姓名、Email 與流水號。</>, data: filled, tag: "名單第 1 筆", field: "moment-verify" },
+  { clause: <>逐人產製 PDF，<br />寄出流水號與下載密碼。</>, data: filled, tag: "PDF 已產製", field: "moment-verify-strong" },
+  { clause: <>收件人輸入兩者下載，<br />任何人都能查流水號。</>, data: filled, tag: "流水號有效", field: "moment-ink" },
 ];
 
 const points: { title: string; body: string }[][] = [
   [
     { title: "不可變的模板版本", body: "PDF 或圖片都能當背景；發布後鎖定版本，已發證書保持原樣。" },
-    { title: "自訂欄位與流水號", body: "時數、成績都能設成欄位，從 Excel 對應；每張證書依組織規則自動編號。" },
+    { title: "一個活動，多種模板", body: "名單加一欄「模板」，結業證書與時數證明可以在同一個活動發出。" },
     { title: "產製前先看樣張", body: "每位收件人都能預覽伺服器產出的 PDF，確認字型與版面。" },
   ],
   [
     { title: "ZIP 與失敗報告", body: "一次下載全部成功的證書，失敗項目匯出 CSV 方便更正。" },
-    { title: "撤銷與重新發放", body: "補發會產生新編號與新 PDF，舊證書立即失效。" },
-    { title: "有效期限管理", body: "到期日以台北時間計算，公開驗證頁即時顯示最新期限。" },
+    { title: "撤銷與重新發放", body: "補發沿用原流水號與密碼，收件人用原本的通知信就能下載新版。" },
+    { title: "有效期限管理", body: "到期日以台北時間計算，流水號查詢即時顯示最新狀態。" },
   ],
   [
     { title: "只能新增的稽核紀錄", body: "誰在何時做了什麼都留存，資料庫層級禁止修改。" },
     { title: "多組織與角色權限", body: "設計、發證、稽核分開授權，知道網址不等於有權限。" },
-    { title: "收件人自己的入口", body: "收件人啟用帳號後，在手機上也能下載與分享證書。" },
+    { title: "不必註冊就能下載", body: "收件人用信中的流水號與密碼下載 PDF；密碼只存雜湊值，錯誤太多次會暫停。" },
   ],
 ];
 
-function parseVerification(input: string) {
-  const value = input.trim();
-  if (!value) return null;
-  const fromUrl = value.match(/\/verify\/([^/?#\s]+)/);
-  if (fromUrl) return decodeURIComponent(fromUrl[1]!);
-  return /^[A-Za-z0-9_-]{8,}$/.test(value) ? value : null;
-}
-
-function VerifyForm() {
-  const navigate = useNavigate();
-  const [value, setValue] = useState("");
-  const [error, setError] = useState("");
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    const id = parseVerification(value);
-    if (!id) {
-      setError("請貼上完整的驗證連結，或證書 QR Code 裡的驗證代碼。");
-      return;
-    }
-    navigate(`/verify/${encodeURIComponent(id)}`);
-  };
-  return (
-    <form className="hero-verify" onSubmit={submit} id="verify" noValidate>
-      <label className="sr-only" htmlFor="verify-input">
-        驗證連結或驗證代碼
-      </label>
-      <input
-        id="verify-input"
-        className="hero-verify-input"
-        value={value}
-        onChange={(e) => {
-          setValue(e.target.value);
-          setError("");
-        }}
-        placeholder="貼上證書的驗證連結"
-        autoComplete="off"
-        spellCheck={false}
-        aria-describedby="verify-help"
-        aria-invalid={!!error}
-      />
-      <button className="btn hero-verify-button" type="submit">
-        查詢真偽
-        <ArrowRightIcon aria-hidden />
-      </button>
-      <p id="verify-help" className={error ? "hero-verify-help is-error" : "hero-verify-help"} role={error ? "alert" : undefined}>
-        {error || "不必登入。查詢結果只顯示遮罩後的姓名與證書狀態。"}
-      </p>
-    </form>
-  );
-}
-
-function Certificate({ data, withQr }: { data: Record<string, string>; withQr: boolean }) {
+function Certificate({ data }: { data: Record<string, string> }) {
   return (
     <TemplateThumb widthMm={sampleDocument.widthMm} heightMm={sampleDocument.heightMm}>
       <CertificateView
-        document={withQr ? sampleDocument : documentWithoutQr}
-        data={{ ...data, verification_url: "preview" }}
+        document={sampleDocument}
+        data={data}
         assetUrls={{}}
         fontUrl="/api/fonts/noto-sans-tc"
       />
@@ -131,7 +79,8 @@ export function LandingPage() {
         <nav aria-label="首頁導覽" className="landing-links">
           <a href="#how">運作方式</a>
           <a href="#features">功能</a>
-          <a href="#verify">驗證證書</a>
+          <a href="#verify">查詢證書</a>
+          <Link to="/download">下載證書</Link>
         </nav>
         <Link to={enter} className="btn btn-sm landing-enter">
           {signedIn ? "進入工作空間" : "登入"}
@@ -146,14 +95,14 @@ export function LandingPage() {
         </div>
         <div className="hero-copy">
           <h1 id="hero-title" className="hero-title">
-            證書真偽，
+            一組流水號，
             <br />
-            一查就知。
+            就能查真偽。
           </h1>
           <p className="hero-lead">
-            組織在這裡設計模板、批次產製 PDF 並寄出通知；每張證書都附上公開驗證連結與 QR Code。
+            組織在這裡設計模板、批次產製 PDF，寄出流水號與下載密碼。收件人不必註冊就能下載，任何人都能查流水號是否真實。
           </p>
-          <VerifyForm />
+          <SerialForm />
         </div>
       </section>
 
@@ -166,7 +115,7 @@ export function LandingPage() {
               </h2>
             )}
             <div className="moment-card" data-ui data-reveal>
-              <Certificate data={moment.data} withQr={index === moments.length - 1} />
+              <Certificate data={moment.data} />
               {moment.tag && <span className="moment-tag">{moment.tag}</span>}
             </div>
             <p className="moment-clause" data-reveal>
@@ -180,7 +129,7 @@ export function LandingPage() {
         <figure className="features-figure" data-shutter>
           <img
             src="/landing/workspace-batch.webp"
-            alt="certfolio 發證活動頁：收件人表格列出產製狀態、證書編號與 PDF 操作"
+            alt="certfolio 發證活動頁：產製進度、使用的模板，以及收件人的流水號與產製狀態"
             width={1600}
             height={1600}
             loading="lazy"
@@ -216,7 +165,7 @@ export function LandingPage() {
           <img className="inline-shot" src="/landing/inline-list.webp" alt="" width={240} height={240} loading="lazy" />
           、一張模板
           <img className="inline-shot" src="/landing/inline-editor.webp" alt="" width={240} height={240} loading="lazy" />
-          ，到每個人手上都能被驗證的證書
+          ，到每個人手上都查得到的證書
           <img className="inline-shot" src="/landing/inline-verify.webp" alt="" width={240} height={240} loading="lazy" />
           。
         </p>
@@ -224,7 +173,7 @@ export function LandingPage() {
 
       <Link to={enter} className="cta-band" aria-label={signedIn ? "進入工作空間" : "登入 certfolio"}>
         <span className="cta-note">
-          {signedIn ? "回到你的組織工作空間。" : "已經收到啟用信？登入後就能下載你的證書。"}
+          {signedIn ? "回到你的組織工作空間。" : "發證單位請登入工作空間；收件人請用通知信中的流水號下載。"}
         </span>
         <svg className="cta-arrow" viewBox="0 0 48 48" aria-hidden>
           <path d="M14 34 34 14M18 14h16v16" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
@@ -250,15 +199,14 @@ export function LandingPage() {
           </div>
           <div>
             <h3>收件人</h3>
-            <Link to="/me">我的證書</Link>
-            <Link to="/login">啟用與登入</Link>
+            <Link to="/download">用流水號與密碼下載</Link>
           </div>
           <div>
-            <h3>驗證</h3>
-            <a href="#verify">查詢證書真偽</a>
+            <h3>查詢</h3>
+            <a href="#verify">查詢證書流水號</a>
           </div>
           <p className="foot-note">
-            公開驗證只顯示發證紀錄與遮罩姓名，不提供私人 PDF 或 Email。
+            流水號查詢只顯示發證單位、活動與證書狀態，不提供持有人姓名、Email 或 PDF。
             <br />
             首頁圖片均為 certfolio 本身的介面與證書輸出畫面。
           </p>

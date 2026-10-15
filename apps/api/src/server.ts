@@ -73,6 +73,8 @@ export async function buildApp() {
         })),
       });
     const e = error as Error & { statusCode?: number; code?: string };
+    if (e.message?.includes("Certificate_serial_one_lineage"))
+      return reply.code(409).send({ message: "證書流水號已被其他證書使用" });
     if (e.code === "P2002")
       return reply.code(409).send({ message: "這筆操作已存在，請重新整理" });
     if (e.code === "P2025")

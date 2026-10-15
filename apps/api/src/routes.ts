@@ -7,10 +7,7 @@ import { Prisma } from "@prisma/client";
 import {
   db,
   storage,
-  validateCsv,
-  validateImportRows,
-  encodeCsv, certificateStatus, expiryDateSchema, expiryInstant, verificationUrl, unexpiredWhere,
-  allocateCertificateNumber,
+  encodeCsv, certificateStatus, expiryDateSchema, expiryInstant, unexpiredWhere,
 } from "@cert/domain";
 import {
   TemplateDocumentSchema,
@@ -19,9 +16,8 @@ import {
   IANSUI_VERSION,
   FONT_ASSET_VERSION,
   RENDERER_VERSION,
-  CertificateSerialSchema,
-  formatCertificateNumber,
   withBuiltinFields,
+  OrganizationSlugSchema,
   type TemplateDocument,
 } from "@cert/contracts";
 import { DEFAULT_FONT_PATH, IANSUI_FONT_PATH } from "@cert/renderer/server";
@@ -31,6 +27,7 @@ import { renderVersionPdf } from "../../../packages/domain/src/rendering.js";
 import { parseImportFile } from "../../../packages/domain/src/spreadsheet-import.js";
 import { convertPdfBackground, isPdf } from "../../../packages/domain/src/pdf-background.js";
 import { registerVerificationRoutes } from "./verification.js";
+import { checkRecords, loadBatchTemplates, recordsInput } from "./batch-input.js";
 import { registerLifecycleRoutes } from "./lifecycle.js";
 import { zipSync } from "fflate";
 const json = (value: unknown) => value as Prisma.InputJsonValue;
@@ -61,7 +58,13 @@ async function getBatch(org: string, id: string, client: Prisma.TransactionClien
     include: {
       templateVersion: true,
       organization: true,
-      rows: { orderBy: { rowNumber: "asc" }, include: { certificates: { orderBy: { edition: "desc" } } } },
+      rows: {
+        orderBy: { rowNumber: "asc" },
+        include: {
+          certificates: { orderBy: { edition: "desc" } },
+          templateVersion: { include: { template: { select: { name: true } } } },
+        },
+      },
     },
   });
   if (!b) fail(404, "找不到發證批次");
@@ -69,7 +72,10 @@ async function getBatch(org: string, id: string, client: Prisma.TransactionClien
 }
 const batchInput = z
   .object({
-    templateVersionId: z.uuid(),
+    /** Templates this event may use; each recipient picks one by name in the `template` column. */
+    templateVersionIds: z.array(z.uuid()).min(1).max(10).optional(),
+    /** Single-template shorthand. */
+    templateVersionId: z.uuid().optional(),
     eventName: z.string().trim().min(1).max(160),
     expiresOn: expiryDateSchema.optional(),
     csv: z
@@ -77,53 +83,18 @@ const batchInput = z
       .min(1)
       .max(512 * 1024)
       .optional(),
-    records: z
-      .array(
-        z
-          .object({
-            rowNumber: z.number().int().min(2).max(1000000),
-            data: z
-              .record(
-                z
-                  .string()
-                  .regex(/^[a-z][a-z0-9_]{0,63}$/)
-                  .refine(
-                    (k) =>
-                      !["constructor", "prototype", "__proto__"].includes(k),
-                  ),
-                z.string().max(500),
-              )
-              .refine((d) => Object.keys(d).length <= 32),
-          })
-          .strict(),
-      )
-      .min(1)
-      .max(100)
-      .optional(),
+    records: recordsInput.optional(),
   })
   .strict();
-async function validateBatch(org: string, body: z.infer<typeof batchInput>) {
+
+async function validateBatch(org: string, body: z.infer<typeof batchInput>, client: Prisma.TransactionClient = db) {
   if (!!body.csv === !!body.records) fail(400, "請提供一種名單來源");
-  const version = await db.templateVersion.findFirst({
-    where: { id: body.templateVersionId, organizationId: org },
-  });
-  if (!version) fail(404, "找不到已發布模板版本");
-  try {
-    return {
-      version,
-      ...(body.records
-        ? validateImportRows(
-            body.records,
-            TemplateDocumentSchema.parse(version.document),
-          )
-        : validateCsv(
-            body.csv!,
-            TemplateDocumentSchema.parse(version.document),
-          )),
-    };
-  } catch (error) {
-    fail(400, error instanceof Error ? error.message : "CSV 格式錯誤");
-  }
+  const templates = await loadBatchTemplates(
+    org,
+    body.templateVersionIds ?? (body.templateVersionId ? [body.templateVersionId] : []),
+    client,
+  );
+  return { templates, ...(await checkRecords(client, org, templates, body)) };
 }
 export async function registerRoutes(app: FastifyInstance) {
   await registerLifecycleRoutes(app);
@@ -145,57 +116,35 @@ export async function registerRoutes(app: FastifyInstance) {
   app.get("/api/fonts/noto-sans-tc", async (_req, reply) =>
     reply.type("font/ttf").send(await readFile(DEFAULT_FONT_PATH)),
   );
-  const serialSettings = (o: {
-    certificatePrefix: string;
-    certificateDigits: number;
-    certificateSequence: number;
-  }) => ({
-    prefix: o.certificatePrefix,
-    digits: o.certificateDigits,
-    issued: o.certificateSequence,
-    nextSequence: o.certificateSequence + 1,
-    nextNumber: formatCertificateNumber(o.certificatePrefix, o.certificateDigits, o.certificateSequence + 1),
-  });
-  app.get("/api/organizations/:org/settings/serial", async (req) => {
+  const organizationSettings = (o: { id: string; name: string; slug: string }) => ({ id: o.id, name: o.name, slug: o.slug });
+  app.get("/api/organizations/:org/settings", async (req) => {
     const { org } = params(req);
     await authorize(req, org, "templates.read");
-    return serialSettings(await db.organization.findUniqueOrThrow({ where: { id: org } }));
+    return organizationSettings(await db.organization.findUniqueOrThrow({ where: { id: org } }));
   });
-  app.put("/api/organizations/:org/settings/serial", async (req) => {
+  app.put("/api/organizations/:org/settings", async (req) => {
     const { org } = params(req);
     const { user } = await authorize(req, org, "organization.manage");
-    const body = CertificateSerialSchema.extend({
-      nextSequence: z.number().int().min(1).max(2_000_000_000).optional(),
-    })
+    const body = z
+      .object({ slug: OrganizationSlugSchema })
       .strict()
       .parse(req.body);
     return db.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT id FROM "Organization" WHERE id=${org} FOR UPDATE`;
       const before = await tx.organization.findUniqueOrThrow({ where: { id: org } });
-      const nextSequence = body.nextSequence ?? before.certificateSequence + 1;
-      // Serials only move forward, so a number that was handed out can never be issued again.
-      if (nextSequence <= before.certificateSequence)
-        fail(409, `下一個流水號必須大於已使用的 ${before.certificateSequence}`);
-      if (String(nextSequence).length > body.digits)
-        fail(400, `下一個流水號超過 ${body.digits} 位數，請增加位數`);
-      const after = await tx.organization.update({
-        where: { id: org },
-        data: {
-          certificatePrefix: body.prefix,
-          certificateDigits: body.digits,
-          certificateSequence: nextSequence - 1,
-        },
-      });
+      if (before.slug === body.slug) return organizationSettings(before);
+      if (await tx.organization.findUnique({ where: { slug: body.slug } }))
+        fail(409, "這個網址代稱已被其他組織使用");
+      const after = await tx.organization.update({ where: { id: org }, data: { slug: body.slug } });
       await tx.auditLog.create({
         data: {
           organizationId: org,
           actorId: user.id,
-          action: "organization.serial_updated",
+          action: "organization.slug_updated",
           resourceId: org,
-          metadata: { before: serialSettings(before), after: serialSettings(after) },
+          metadata: { actorEmail: user.email, before: { slug: before.slug }, after: { slug: after.slug } },
         },
       });
-      return serialSettings(after);
+      return organizationSettings(after);
     });
   });
   app.get("/api/organizations/:org/templates", async (req) => {
@@ -435,8 +384,8 @@ export async function registerRoutes(app: FastifyInstance) {
     const { org } = params(req);
     await authorize(req, org, "recipients.import");
     const body = batchInput.parse(req.body);
-    const { rows, valid } = await validateBatch(org, body);
-    return { rows, valid };
+    const { rows, valid, templates } = await validateBatch(org, body);
+    return { rows, valid, templates: templates.map(({ id, name, number }) => ({ id, name, number })) };
   });
   app.post("/api/organizations/:org/batches", async (req) => {
     const { org } = params(req);
@@ -453,33 +402,29 @@ export async function registerRoutes(app: FastifyInstance) {
       },
     });
     if (existing) return existing;
-    const { rows, valid } = await validateBatch(
-      org,
-      batchInput.parse({
-        templateVersionId: body.templateVersionId,
-        eventName: body.eventName,
-        csv: body.csv,
-        records: body.records,
-      }),
-    );
-    if (!valid) fail(400, "請先修正所有錯誤列；本階段不會靜默略過");
+    const { idempotencyKey: _key, ...input } = body;
     return db.$transaction(async tx => {
+    // One issuer at a time per organization, so two lists cannot both claim a serial.
+    await tx.$queryRaw`SELECT id FROM "Organization" WHERE id=${org} FOR UPDATE`;
+    const { rows, valid, templates } = await validateBatch(org, batchInput.parse(input), tx);
+    if (!valid) fail(400, "請先修正所有錯誤列；本階段不會靜默略過");
     const batch = await tx.issuanceBatch.create({
       data: {
         organizationId: org,
-        templateVersionId: body.templateVersionId,
+        templateVersionId: templates[0]!.id,
         eventName: body.eventName,
         expiresAt: expiryInstant(body.expiresOn),
         idempotencyKey: body.idempotencyKey,
         rows: {
           create: rows.map((r) => ({
             rowNumber: r.rowNumber,
+            templateVersionId: r.templateVersionId!,
             data: json(r.data),
           })),
         },
       },
     });
-    await tx.auditLog.create({ data: { organizationId: org, actorId: user.id, action: "batch.created", resourceId: batch.id, metadata: { actorEmail: user.email, eventName: batch.eventName, rowCount: rows.length } } });
+    await tx.auditLog.create({ data: { organizationId: org, actorId: user.id, action: "batch.created", resourceId: batch.id, metadata: { actorEmail: user.email, eventName: batch.eventName, rowCount: rows.length, templateVersionIds: templates.map((t) => t.id) } } });
     return batch;
     });
   });
@@ -542,10 +487,13 @@ export async function registerRoutes(app: FastifyInstance) {
       status: b.status,
       previewedAt: b.previewedAt,
       templateVersionId: b.templateVersionId,
+      templates: [...new Map(b.rows.map((r) => [r.templateVersionId, { id: r.templateVersionId, name: r.templateVersion.template.name, number: r.templateVersion.number }])).values()],
       createdAt: b.createdAt,
       rows: b.rows.map((r) => ({
         id: r.id,
         rowNumber: r.rowNumber,
+        templateVersionId: r.templateVersionId,
+        templateName: r.templateVersion.template.name,
         data: r.data,
         status: r.status,
         error: r.error,
@@ -558,8 +506,8 @@ export async function registerRoutes(app: FastifyInstance) {
               storedStatus: r.certificate.status,
               expiresAt: r.certificate.expiresAt,
               revision: r.certificate.revision,
-              verificationUrl: verificationUrl(r.certificate.publicId),
               edition: r.certificate.edition,
+              passwordSent: !!r.certificate.accessKeyHash,
             }
           : null,
       })),
@@ -608,7 +556,8 @@ export async function registerRoutes(app: FastifyInstance) {
           .normalize("NFKC")
           .replace(/[\\/<>:"|?*\u0000-\u001f.]/g, "_")
           .slice(0, 60);
-        files[`${row.rowNumber}-${name}-${certificate.id}.pdf`] = bytes;
+        const serial = certificate.number.replace(/[\\/<>:"|?*\u0000-\u001f]/g, "_");
+        files[`${serial}-${name}.pdf`] = bytes;
       }
       // Store already compressed PDFs; no duplicate rendering, and no filesystem extraction paths.
       const zip = Buffer.from(zipSync(files, { level: 0 }));
@@ -639,7 +588,7 @@ export async function registerRoutes(app: FastifyInstance) {
         },
       });
       const report: (string | number)[][] = [
-        ["原始列號", "姓名", "Email", "階段", "狀態", "錯誤原因", "證書編號"],
+        ["序號", "姓名", "Email", "階段", "狀態", "錯誤原因", "證書流水號"],
       ];
       for (const row of batch.rows) {
         const data = row.data as Record<string, string>;
@@ -695,19 +644,12 @@ export async function registerRoutes(app: FastifyInstance) {
           new Intl.DateTimeFormat("sv-SE", {
             timeZone: "Asia/Taipei",
           }).format(new Date()),
-        // The sample shows the format the real certificate will get, without using up a serial.
-        certificate_number: formatCertificateNumber(
-          b.organization.certificatePrefix,
-          b.organization.certificateDigits,
-          b.organization.certificateSequence + 1,
-        ),
-        verification_url: `${new URL(config.APP_ORIGIN).origin}/verify/preview`,
       };
       if (activePreviews >= 2) fail(429, "PDF 預覽忙碌，請稍後重試");
       activePreviews++;
       let pdf: Awaited<ReturnType<typeof renderVersionPdf>>;
       try {
-        pdf = await renderVersionPdf(b.templateVersion, org, data);
+        pdf = await renderVersionPdf(row.templateVersion, org, data);
       } catch (error) {
         // Only rendering failures map to 422; business conflicts below keep their own status.
         fail(422, error instanceof Error ? error.message : "PDF 預覽失敗");
@@ -732,6 +674,8 @@ export async function registerRoutes(app: FastifyInstance) {
       if (!b.previewedAt) fail(409, "請先預覽伺服器產出的 PDF 樣張");
       for (const row of b.rows) {
         const data = row.data as Record<string, string>;
+        const number = data.certificate_number;
+        if (!number) fail(409, `第 ${row.rowNumber} 筆缺少證書流水號，請先編輯活動補上`);
         const account = await tx.user.upsert({
           where: { email: data.recipient_email! },
           create: { email: data.recipient_email! },
@@ -756,9 +700,10 @@ export async function registerRoutes(app: FastifyInstance) {
         const existing = await tx.certificate.findUnique({
           where: { rowId_edition: { rowId: row.id, edition: 1 } },
         });
+        if (!existing && await tx.certificate.findFirst({ where: { organizationId: org, number, rowId: { not: row.id } }, select: { id: true } }))
+          fail(409, `流水號 ${number} 已被其他證書使用，請先編輯活動更正`);
         const certId = randomUUID();
         const publicId = randomUUID();
-        const number = existing ? existing.number : await allocateCertificateNumber(tx, org);
         const cert = existing ?? await tx.certificate.create({
           data: {
             id: certId,
@@ -768,7 +713,7 @@ export async function registerRoutes(app: FastifyInstance) {
             batchId: b.id,
             rowId: row.id,
             recipientId: recipient.id,
-            templateVersionId: b.templateVersionId,
+            templateVersionId: row.templateVersionId,
             number,
             dataSnapshot: {
               ...data,
@@ -780,7 +725,6 @@ export async function registerRoutes(app: FastifyInstance) {
                   timeZone: "Asia/Taipei",
                 }).format(new Date()),
               certificate_number: number,
-              verification_url: verificationUrl(publicId),
             },
           },
         });
@@ -1116,13 +1060,13 @@ export async function registerRoutes(app: FastifyInstance) {
           number: true,
           status: true,
           issuedAt: true,
-          expiresAt: true, publicId: true, generationStatus: true,
+          expiresAt: true, generationStatus: true,
           organization: { select: { name: true } },
           batch: { select: { eventName: true } },
         },
         orderBy: { issuedAt: "desc" },
         ...paging(req),
-      })).map(c => ({ ...c, status: certificateStatus(c), verificationUrl: verificationUrl(c.publicId) })),
+      })).map(c => ({ ...c, status: certificateStatus(c) })),
     };
   });
   app.get("/api/me/certificates/:id/pdf", async (req, reply) => {

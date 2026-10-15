@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { config } from '@cert/config';
 export const expiryDateSchema = z.iso.date().nullable();
 /** A selected day remains valid through 23:59:59.999 in Taipei. */
 export function expiryInstant(date: string | null | undefined) {
@@ -10,5 +9,4 @@ export function certificateStatus(c: { status: string; generationStatus: string;
   if (c.generationStatus !== 'success') return 'pending';
   return c.expiresAt && c.expiresAt <= now ? 'expired' : 'valid';
 }
-export const verificationUrl = (publicId: string) => `${new URL(config.APP_ORIGIN).origin}/verify/${publicId}`;
 export const unexpiredWhere = () => ({ OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] });

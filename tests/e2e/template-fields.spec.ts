@@ -1,24 +1,30 @@
 import { test, expect } from "@playwright/test";
 import { choose } from "./select";
 
-test("自訂動態欄位、常駐流水號欄位、PDF 背景與組織流水號設定", async ({ page }) => {
+test("自訂動態欄位、常駐流水號欄位、PDF 背景與組織網址設定", async ({ page }) => {
   const unique = Date.now().toString();
-  const prefix = `E2E${unique.slice(-5)}`;
   await page.goto("/login");
   await page.getByLabel("電子郵件", { exact: true }).fill(process.env.SEED_ADMIN_EMAIL || "admin@example.test");
   await page.getByLabel("密碼", { exact: true }).fill(process.env.SEED_ADMIN_PASSWORD || "Local-Cert-Only-2026!");
   await page.getByRole("button", { name: "登入工作空間" }).click();
   await expect(page.getByRole("heading", { name: "證書模板", exact: true })).toBeVisible();
 
-  // Organization settings: the serial number format, previewed as it will be printed.
+  // Organization settings: a short workspace address; old UUID links still land in the workspace.
+  const me = await (await page.request.get("/api/auth/me")).json();
+  const { id: orgId, slug: original } = me.memberships[0].organization;
   await page.getByRole("link", { name: "組織設定", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "證書流水號" })).toBeVisible();
-  await page.getByLabel("前綴", { exact: true }).fill(prefix.toLowerCase());
-  await expect(page.getByLabel("前綴", { exact: true })).toHaveValue(prefix);
-  await choose(page, "號碼位數", "5 位（00001）");
-  await expect(page.locator(".serial-next")).toHaveText(new RegExp(`^${prefix}-\\d{5,}$`));
-  await page.getByRole("button", { name: "儲存編號規則" }).click();
-  await expect(page.getByText(`已更新。下一張證書的編號是 ${prefix}-`, { exact: false })).toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`/${original}/settings$`));
+  const slug = `e2e-${unique.slice(-6)}`;
+  await page.getByLabel("網址代稱", { exact: true }).fill(`${slug.toUpperCase()}!`);
+  await expect(page.getByLabel("網址代稱", { exact: true })).toHaveValue(slug);
+  await page.getByRole("button", { name: "儲存網址" }).click();
+  await expect(page).toHaveURL(new RegExp(`/${slug}/settings$`));
+  await page.goto(`/o/${orgId}/templates`);
+  await expect(page).toHaveURL(new RegExp(`/${slug}/templates$`));
+  await page.goto(`/${slug}/settings`);
+  await page.getByLabel("網址代稱", { exact: true }).fill(original);
+  await page.getByRole("button", { name: "儲存網址" }).click();
+  await expect(page).toHaveURL(new RegExp(`/${original}/settings$`));
 
   await page.getByRole("link", { name: "證書模板", exact: true }).click();
   await page.getByRole("button", { name: "建立模板", exact: true }).click();
@@ -30,8 +36,7 @@ test("自訂動態欄位、常駐流水號欄位、PDF 背景與組織流水號�
   const serial = page.getByRole("button", { name: "加入動態文字：證書流水號" });
   await expect(serial).toBeVisible();
   await expect(page.getByRole("button", { name: "編輯欄位：證書流水號" })).toHaveCount(0);
-  // The new template's sample serial follows the organization setting.
-  await expect(page.getByTestId("certificate-canvas")).toContainText(new RegExp(`證書編號 ${prefix}-\\d{5,}`));
+  await expect(page.getByTestId("certificate-canvas")).toContainText("STA-2026-0001");
 
   await page.getByRole("button", { name: "新增自訂欄位" }).click();
   await page.getByLabel("欄位名稱", { exact: true }).fill("課程時數");

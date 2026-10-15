@@ -5,6 +5,8 @@ export type TextElement = TemplateDocument["elements"][number];
 export interface Organization {
   id: string;
   name: string;
+  /** Short workspace address segment, e.g. "zhixing" in /zhixing/templates. */
+  slug: string;
 }
 export interface Membership {
   organization: Organization;
@@ -25,12 +27,19 @@ export interface Template {
 }
 export interface ValidationRow {
   rowNumber: number;
+  templateVersionId?: string | null;
   data: Record<string, string>;
   errors: { field: string; message: string }[];
+}
+export interface BatchTemplateRef {
+  id: string;
+  name: string;
+  number: number;
 }
 export interface Validation {
   rows: ValidationRow[];
   valid: boolean;
+  templates?: BatchTemplateRef[];
 }
 export interface BatchRow {
   id: string;
@@ -39,7 +48,9 @@ export interface BatchRow {
   status: string;
   error?: string | null;
   history?: { id: string; number: string; status: string; edition: number }[];
-  certificate?: { id: string; number: string; status?: string; storedStatus?: string; expiresAt?: string | null; revision: number; verificationUrl: string } | null;
+  templateVersionId?: string;
+  templateName?: string;
+  certificate?: { id: string; number: string; status?: string; storedStatus?: string; expiresAt?: string | null; revision: number; passwordSent?: boolean } | null;
 }
 export interface Batch {
   revision: number;
@@ -51,6 +62,7 @@ export interface Batch {
   createdAt?: string;
   templateVersionId?: string;
   previewedAt?: string | null;
+  templates?: BatchTemplateRef[];
   _count?: { rows: number };
   rows: BatchRow[];
   deliveries: Delivery[];
@@ -86,7 +98,6 @@ export interface Audit {
   metadata?: unknown;
 }
 export interface MyCertificate {
-  verificationUrl: string;
   expiresAt: string | null;
   id: string;
   number: string;

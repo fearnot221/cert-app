@@ -26,7 +26,7 @@ export function TemplatesPage() {
         name,
         document: createDefaultDocument(),
       });
-      navigate(`/o/${organization.id}/templates/${template.id}`);
+      navigate(`/${organization.slug}/templates/${template.id}`);
     });
   return (
     <>
@@ -96,7 +96,7 @@ export function TemplatesPage() {
         <ul className="template-gallery">
           {resource.data.items.map((template) => (
             <li key={template.id}>
-              <Link to={`/o/${organization.id}/templates/${template.id}`} className="template-tile">
+              <Link to={`/${organization.slug}/templates/${template.id}`} className="template-tile">
                 <TemplateThumb widthMm={template.document.widthMm} heightMm={template.document.heightMm}>
                   <CertificateView
                       document={template.document}

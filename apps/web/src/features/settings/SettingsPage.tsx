@@ -1,130 +1,94 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { formatCertificateNumber } from "@cert/contracts";
+import { useNavigate } from "react-router";
 import { api, orgPath } from "../../lib/api";
 import { useAction, useResource } from "../../lib/hooks";
 import { useWorkspace } from "../../app/AppShell";
+import { workspacePath } from "../../app/session";
 import { Button } from "../../ui/Button";
-import { Select } from "../../ui/Select";
 import { Loading, LoadError, Notice, PageHeader } from "../../ui/feedback";
 
-type Serial = { prefix: string; digits: number; issued: number; nextSequence: number; nextNumber: string };
+type Settings = { id: string; name: string; slug: string };
+const reserved = new Set(["o", "api", "login", "activate", "reset-password", "verify", "download", "me", "workspace", "certificates", "my-certificates", "assets", "landing", "fonts", "settings", "admin", "help"]);
 
-/** Organization settings. For now: the certificate serial number format. */
+/** Organization settings: the short address its workspace lives at. */
 export function SettingsPage() {
   const { organization, permissions } = useWorkspace();
-  const path = orgPath(organization.id, "/settings/serial");
-  const serial = useResource<Serial>(path);
+  const navigate = useNavigate();
+  const path = orgPath(organization.id, "/settings");
+  const settings = useResource<Settings>(path);
   const action = useAction();
   const canManage = permissions.includes("organization.manage");
-  const [prefix, setPrefix] = useState("");
-  const [digits, setDigits] = useState("6");
-  const [next, setNext] = useState("");
-
+  const [slug, setSlug] = useState(organization.slug);
   useEffect(() => {
-    if (!serial.data) return;
-    setPrefix(serial.data.prefix);
-    setDigits(String(serial.data.digits));
-    setNext(String(serial.data.nextSequence));
-  }, [serial.data]);
-
-  const nextNumber = Number(next);
-  const validPrefix = /^[A-Z0-9][A-Z0-9-]{0,15}$/.test(prefix);
-  const validNext = Number.isInteger(nextNumber) && nextNumber >= (serial.data?.nextSequence ?? 1);
-  const preview = (offset: number) =>
-    formatCertificateNumber(validPrefix ? prefix : "CERT", Number(digits), (validNext ? nextNumber : serial.data?.nextSequence ?? 1) + offset);
-  const changed =
-    !!serial.data &&
-    (prefix !== serial.data.prefix || Number(digits) !== serial.data.digits || nextNumber !== serial.data.nextSequence);
+    if (settings.data) setSlug(settings.data.slug);
+  }, [settings.data]);
+  const valid = /^[a-z0-9][a-z0-9-]{1,31}$/.test(slug) && !reserved.has(slug);
+  const changed = !!settings.data && slug !== settings.data.slug;
 
   const save = (event: FormEvent) => {
     event.preventDefault();
     void action.run(async () => {
-      await api<Serial>(path, {
-        method: "PUT",
-        body: JSON.stringify({ prefix, digits: Number(digits), nextSequence: nextNumber }),
-      });
-      action.setSuccess(`已更新。下一張證書的編號是 ${preview(0)}。`);
+      const saved = await api<Settings>(path, { method: "PUT", body: JSON.stringify({ slug }) });
+      // The workspace reloads the session when it meets the new address.
+      navigate(workspacePath(saved, "settings"), { replace: true });
     });
   };
 
   return (
     <>
-      <PageHeader title="組織設定" description={`${organization.name}的證書編號規則。每張證書在產製時取得一個流水號，印在證書上，也會出現在驗證頁與通知信中。`} />
-      {serial.pending ? (
+      <PageHeader title="組織設定" description={`${organization.name}的工作空間網址。`} />
+      {settings.pending ? (
         <Loading />
-      ) : serial.error && !serial.data ? (
-        <LoadError error={serial.error} retry={() => void serial.reload()} />
+      ) : settings.error && !settings.data ? (
+        <LoadError error={settings.error} retry={() => void settings.reload()} />
       ) : (
-        serial.data && (
-          <section className="serial-settings" aria-labelledby="serial-heading">
+        settings.data && (
+          <section className="serial-settings" aria-labelledby="slug-heading">
             <div className="serial-preview" aria-live="polite">
-              <h2 id="serial-heading">證書流水號</h2>
-              <p className="serial-next tabular">{preview(0)}</p>
-              <p className="serial-after tabular">
-                接著是 {preview(1)}、{preview(2)}
+              <h2 id="slug-heading">工作空間網址</h2>
+              <p className="slug-preview">
+                <span>{location.host}/</span>
+                <strong>{valid ? slug : settings.data.slug}</strong>
+                <span>/templates</span>
               </p>
               <dl className="serial-facts">
                 <div>
-                  <dt>已發出</dt>
-                  <dd className="tabular">{serial.data.issued.toLocaleString("zh-TW")} 張</dd>
+                  <dt>目前網址</dt>
+                  <dd>/{settings.data.slug}</dd>
                 </div>
                 <div>
-                  <dt>規則</dt>
-                  <dd>只往前編號，同一組織內不會重複</dd>
+                  <dt>舊連結</dt>
+                  <dd>改名後，舊網址不再指向這個組織，請通知同事更新書籤</dd>
                 </div>
               </dl>
             </div>
             <form className="serial-form" onSubmit={save}>
               <fieldset disabled={!canManage || action.busy} className="stack">
                 <div className="field">
-                  <label htmlFor="serial-prefix">前綴</label>
+                  <label htmlFor="org-slug">網址代稱</label>
                   <input
-                    id="serial-prefix"
-                    aria-describedby="serial-prefix-help"
-                    value={prefix}
-                    maxLength={16}
+                    id="org-slug"
+                    aria-describedby="org-slug-help"
+                    value={slug}
+                    maxLength={32}
                     spellCheck={false}
-                    autoCapitalize="characters"
-                    aria-invalid={!validPrefix}
-                    onChange={(e) => setPrefix(e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, ""))}
+                    autoCapitalize="none"
+                    aria-invalid={!valid}
+                    onChange={(e) => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
                   />
-                  <span className="field-help" id="serial-prefix-help">英文字母、數字與連字號，例如 CERT、ZX2026。</span>
-                </div>
-                <label className="field">
-                  號碼位數
-                  <Select
-                    label="號碼位數"
-                    value={digits}
-                    onChange={setDigits}
-                    options={[3, 4, 5, 6, 7, 8, 9, 10].map((n) => ({ value: String(n), label: `${n} 位（${formatCertificateNumber("", n, 1).slice(1)}）` }))}
-                  />
-                </label>
-                <div className="field">
-                  <label htmlFor="serial-next">下一個號碼</label>
-                  <input
-                    id="serial-next"
-                    aria-describedby="serial-next-help"
-                    type="number"
-                    inputMode="numeric"
-                    min={serial.data.nextSequence}
-                    value={next}
-                    aria-invalid={!validNext}
-                    onChange={(e) => setNext(e.target.value)}
-                  />
-                  <span className="field-help" id="serial-next-help">
-                    可以往後跳號（例如接續紙本證書），不能小於 {serial.data.nextSequence}。
+                  <span className="field-help" id="org-slug-help">
+                    2 至 32 個小寫英文字母、數字或連字號，例如 zhixing、sta-tw。每個組織不能重複。
                   </span>
                 </div>
                 <Notice message={action.error} />
-                <Notice message={action.success} kind="success" />
                 {canManage ? (
                   <div className="btn-row">
-                    <Button type="submit" disabled={!changed || !validPrefix || !validNext || action.busy}>
-                      {action.busy ? "儲存中…" : "儲存編號規則"}
+                    <Button type="submit" disabled={!changed || !valid || action.busy}>
+                      {action.busy ? "儲存中…" : "儲存網址"}
                     </Button>
                   </div>
                 ) : (
-                  <p className="field-help">只有組織擁有者與管理員可以變更編號規則。</p>
+                  <p className="field-help">只有組織擁有者與管理員可以變更網址。</p>
                 )}
               </fieldset>
             </form>

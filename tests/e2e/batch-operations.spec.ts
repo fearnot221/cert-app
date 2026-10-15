@@ -3,6 +3,7 @@ import { choose } from "./select";
 import ExcelJS from "exceljs";
 import { unzipSync } from "fflate";
 import { readFile } from "node:fs/promises";
+import { createDefaultDocument } from "@cert/contracts";
 
 test("Excel 工作表與欄位對應、錯誤報告、批次 ZIP、活動篩選與手動名單", async ({
   page,
@@ -17,23 +18,37 @@ test("Excel 工作表與欄位對應、錯誤報告、批次 ZIP、活動篩選�
     .getByLabel("密碼", { exact: true })
     .fill(process.env.SEED_ADMIN_PASSWORD || "Local-Cert-Only-2026!");
   await page.getByRole("button", { name: "登入工作空間" }).click();
+  await expect(page.getByRole("heading", { name: "證書模板", exact: true })).toBeVisible();
+  const me = await (await page.request.get("/api/auth/me")).json();
+  const org = me.memberships[0].organization.id;
+  const csrf = (await (await page.request.get("/api/auth/csrf")).json()).csrfToken;
+  const templateName = `Excel 模板 ${unique}`;
+  const post = async (path: string, data: unknown) => {
+    const r = await page.request.post(`/api/organizations/${org}${path}`, { data, headers: { "X-CSRF-Token": csrf } });
+    expect(r.ok(), await r.text()).toBeTruthy();
+    return r.json();
+  };
+  const template = await post("/templates", { name: templateName, document: createDefaultDocument() });
+  await post(`/templates/${template.id}/publish`, {});
+  await page.reload();
   await page.getByRole("link", { name: "發證活動", exact: true }).click();
   await page.getByRole("link", { name: "建立發證活動", exact: true }).click();
   await page.getByLabel("活動名稱", { exact: true }).fill(name);
-  await choose(page, "模板版本", { index: 0 });
+  await page.getByRole("checkbox", { name: templateName, exact: true }).check();
   const book = new ExcelJS.Workbook();
   const other = book.addWorksheet("備用");
   other.addRow(["姓名", "Email"]);
   other.addRow(["備用名單", `unused-${unique}@example.test`]);
   const sheet = book.addWorksheet("發證名單");
-  sheet.addRow(["學員姓名", "電子郵件", "發證日期"]);
+  sheet.addRow(["學員姓名", "電子郵件", "證書流水號", "發證日期"]);
   sheet.addRow([
     "王小明",
     `zip-${unique}@example.test`,
+    `ZIP-${unique}-1`,
     new Date("2026-10-15T00:00:00Z"),
   ]);
   sheet.addRow([]);
-  sheet.addRow(["陳怡君", "wrong-email", new Date("2026-10-16T00:00:00Z")]);
+  sheet.addRow(["陳怡君", "wrong-email", `ZIP-${unique}-2`, new Date("2026-10-16T00:00:00Z")]);
   const upload = async () => {
     await page
       .getByLabel("上傳收件人名單", { exact: true })
@@ -55,7 +70,8 @@ test("Excel 工作表與欄位對應、錯誤報告、批次 ZIP、活動篩選�
     .click();
   const report = await reportDownload;
   const reportText = await readFile((await report.path())!, "utf8");
-  expect(reportText).toContain('"4"');
+  // Rows are numbered from 1 in the list's own order; the blank row is skipped.
+  expect(reportText).toContain('"2"');
   expect(reportText).toContain("Email 格式不正確");
   sheet.getCell("B4").value = `zip-second-${unique}@example.test`;
   await upload();
@@ -132,12 +148,15 @@ test("Excel 工作表與欄位對應、錯誤報告、批次 ZIP、活動篩選�
   await expect(page.getByRole("cell", { name, exact: true })).toBeVisible();
   await page.getByRole("link", { name: "建立發證活動", exact: true }).click();
   await page.getByLabel("活動名稱", { exact: true }).fill(`手動 ${unique}`);
-  await choose(page, "模板版本", { index: 0 });
+  await page.getByRole("checkbox", { name: templateName, exact: true }).check();
   await page.getByRole("button", { name: "手動新增", exact: true }).click();
   await page.getByLabel("第 1 人姓名", { exact: true }).fill("手動學員");
   await page
     .getByLabel("第 1 人Email", { exact: true })
     .fill(`manual-${unique}@example.test`);
+  await page
+    .getByLabel("第 1 人證書流水號", { exact: true })
+    .fill(`MANUAL-${unique}`);
   await page.getByRole("button", { name: "檢查名單", exact: true }).click();
   await expect(page.getByText("1 筆資料 · 0 筆需要修正")).toBeVisible();
   const manualResponse = page.waitForResponse(r => r.request().method() === "POST" && r.url().endsWith("/batches"));
@@ -149,7 +168,8 @@ test("Excel 工作表與欄位對應、錯誤報告、批次 ZIP、活動篩選�
   ).toBeVisible();
 
   await expect(page.getByRole('cell', { name: '1', exact: true })).toBeVisible();
-  await expect(page.getByText('來源列號 2', { exact: true })).toBeVisible();
+  await expect(page.getByText('來源列號')).toHaveCount(0);
+  await expect(page.getByText(`MANUAL-${unique}`, { exact: true }).first()).toBeVisible();
   await page.getByRole('button', { name: '編輯活動', exact: true }).click();
   let modal = page.getByRole('dialog');
   await modal.getByLabel('活動名稱', { exact: true }).fill(`已編輯 ${unique}`);

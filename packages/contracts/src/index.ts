@@ -79,14 +79,13 @@ export const TemplateDocumentSchema = z
     widthMm: finite.min(50).max(1000),
     heightMm: finite.min(50).max(1000),
     backgroundAssetId: safeId.optional(),
-    verificationQr: z.object({ x: finite.min(0).max(1000), y: finite.min(0).max(1000), size: finite.min(20).max(80) }).strict().optional(),
+    /** Retired public-verification QR position. Older versions still carry it; it is never drawn. */
+    verificationQr: z.record(z.string(), z.number()).optional(),
     elements: z.array(TextElementSchema).max(100),
     fields: z.array(FieldDefinitionSchema).max(100),
   })
   .strict()
   .superRefine((document, context) => {
-    const qr = document.verificationQr;
-    if (qr && (qr.x + qr.size > document.widthMm || qr.y + qr.size > document.heightMm)) context.addIssue({ code: "custom", path: ["verificationQr"], message: "QR Code 超出紙張範圍" });
     const fieldKeys = new Set(document.fields.map((field) => field.key));
     const elementIds = new Set(document.elements.map((element) => element.id));
     if (fieldKeys.size !== document.fields.length)
@@ -144,20 +143,29 @@ export const TemplateDocumentSchema = z
 export type TemplateDocument = z.infer<typeof TemplateDocumentSchema>;
 export type CertificateData = Record<string, string | number>;
 
-/** Serial number format: an uppercase prefix, a hyphen, then the sequence padded with zeros. */
-export const CertificateSerialSchema = z
-  .object({
-    prefix: z
-      .string()
-      .trim()
-      .toUpperCase()
-      .regex(/^[A-Z0-9][A-Z0-9-]{0,15}$/, "前綴只能使用英文字母、數字與連字號，最多 16 字"),
-    digits: z.number().int().min(3).max(10),
-  })
-  .strict();
+/**
+ * Certificate serial numbers come from the import list, like names and emails. They are compared
+ * after NFKC normalisation and upper-casing, so a full-width or lower-case copy finds the same serial.
+ */
+export const SERIAL_PATTERN = /^[\p{L}\p{N}][\p{L}\p{N}\-_.\/#()]{0,63}$/u;
+/** First path segment of every page outside a workspace; an organization cannot take these as its address. */
+export const RESERVED_SLUGS = [
+  "o", "api", "login", "activate", "reset-password", "verify", "download", "me", "workspace",
+  "certificates", "my-certificates", "assets", "landing", "fonts", "settings", "admin", "help",
+] as const;
+/** Workspace address, e.g. /zhixing/templates. */
+export const OrganizationSlugSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .regex(/^[a-z0-9][a-z0-9-]{1,31}$/, "網址代稱需為 2 至 32 個小寫英文字母、數字或連字號，且不以連字號開頭")
+  .refine((value) => !(RESERVED_SLUGS as readonly string[]).includes(value), "這個網址代稱保留給系統頁面使用");
 
-export function formatCertificateNumber(prefix: string, digits: number, sequence: number) {
-  return `${prefix}-${String(sequence).padStart(digits, "0")}`;
+export function normalizeSerial(value: string) {
+  return value.normalize("NFKC").trim().toUpperCase();
+}
+export function isValidSerial(value: string) {
+  return SERIAL_PATTERN.test(value);
 }
 
 export function collectPlaceholders(document: TemplateDocument): string[] {
@@ -234,12 +242,12 @@ export function validateTemplateData(
 /**
  * Fields every template carries. Recipient fields come from the import list; system fields are
  * filled in by the platform when a certificate is issued, so they never appear in the import.
- * `certificate_number` is the organization's serial number, e.g. CERT-000128.
+ * `certificate_number` is the serial from the list, unique within the organization.
  */
 export const BUILTIN_FIELDS: readonly (FieldDefinition & { source: "recipient" | "system"; hint: string })[] = [
   { key: "recipient_name", label: "姓名", type: "text", required: true, source: "recipient", hint: "名單提供" },
   { key: "recipient_email", label: "Email", type: "email", required: true, source: "recipient", hint: "名單提供，用於寄送" },
-  { key: "certificate_number", label: "證書流水號", type: "text", required: false, source: "system", hint: "發證時自動編號" },
+  { key: "certificate_number", label: "證書流水號", type: "text", required: true, source: "recipient", hint: "名單提供，組織內不可重複" },
   { key: "organization_name", label: "組織名稱", type: "text", required: true, source: "system", hint: "自動帶入" },
   { key: "event_name", label: "活動名稱", type: "text", required: true, source: "system", hint: "取自發證活動" },
   { key: "issue_date", label: "發證日期", type: "date", required: true, source: "system", hint: "未提供則為發證當天" },
@@ -247,13 +255,17 @@ export const BUILTIN_FIELDS: readonly (FieldDefinition & { source: "recipient" |
 const builtinKeys = new Set(BUILTIN_FIELDS.map((field) => field.key));
 export const isBuiltinField = (key: string) => builtinKeys.has(key);
 
-/** Adds any built-in field a template is missing (older templates predate some of them). */
+/**
+ * Adds any built-in field a template is missing (older templates predate some of them) and drops the
+ * retired verification QR, so saving an older template removes it.
+ */
 export function withBuiltinFields<T extends TemplateDocument>(document: T): T {
-  const present = new Set(document.fields.map((field) => field.key));
+  const { verificationQr: _retired, ...rest } = document;
+  const present = new Set(rest.fields.map((field) => field.key));
   const missing = BUILTIN_FIELDS.filter((field) => !present.has(field.key)).map(
     ({ key, label, type, required }) => ({ key, label, type, required }),
   );
-  return missing.length ? { ...document, fields: [...document.fields, ...missing] } : document;
+  return { ...rest, fields: missing.length ? [...rest.fields, ...missing] : rest.fields } as T;
 }
 
 export function createDefaultDocument(): TemplateDocument {
@@ -282,7 +294,6 @@ export function createDefaultDocument(): TemplateDocument {
   return {
     schemaVersion: 1,
     rendererVersion: RENDERER_VERSION,
-    verificationQr: { x: 267, y: 180, size: 22 },
     widthMm: 297,
     heightMm: 210,
     elements: [
@@ -310,7 +321,7 @@ export function createDefaultDocument(): TemplateDocument {
       },
       { key: "event_name", label: "活動名稱", type: "text", required: true },
       { key: "issue_date", label: "發證日期", type: "date", required: true },
-      { key: "certificate_number", label: "證書流水號", type: "text", required: false },
+      { key: "certificate_number", label: "證書流水號", type: "text", required: true },
     ],
   };
 }

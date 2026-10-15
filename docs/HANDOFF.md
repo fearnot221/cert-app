@@ -4,7 +4,7 @@
 
 ## 目前能做什麼
 
-多組織角色與私有證書、模板設計／發布不可變版本、芫荽／Noto 字型、Excel／CSV／手動名單（100 筆）、逐人 PDF、ZIP／失敗報告、Mailpit 通知、帳號啟用／重發／重設密碼、故障恢復、活動編輯／取消、證書撤銷／補發、不可修改稽核、公開驗證／QR／到期管理。
+多組織角色與私有證書、模板設計／發布不可變版本、芫荽／Noto 字型、Excel／CSV／手動名單（100 筆）、逐人 PDF、ZIP／失敗報告、Mailpit 通知、帳號啟用／重發／重設密碼、故障恢復、活動編輯／取消、證書撤銷／補發、不可修改稽核、證書流水號匯入、同一活動多模板、流水號＋密碼下載、流水號公開查詢、到期管理、組織短網址（`/zhixing/templates`）。
 
 正式 SMTP、production 部署、MFA、S3、PKI 簽章並未完成。詳見 [待辦與改善計畫](ROADMAP.md)、[已知問題](KNOWN_ISSUES.md)、[驗證說明](PUBLIC_VERIFICATION.md)。
 
@@ -24,7 +24,7 @@ pnpm exec playwright install chromium
 pnpm dev
 ```
 
-Web http://localhost:5173、API http://localhost:3001、Mailpit http://localhost:58025。種子帳號由 .env 的 SEED_ADMIN_EMAIL／SEED_ADMIN_PASSWORD 決定，預設值僅用於本機。現有資料庫重跑 seed 不會替已有模板自動新增 QR，請在編輯器另存發布版本。
+Web http://localhost:5173、API http://localhost:3001、Mailpit http://localhost:58025。種子帳號由 .env 的 SEED_ADMIN_EMAIL／SEED_ADMIN_PASSWORD 決定，預設值僅用於本機。種子組織的網址為 `/zhixing`、`/qinghe`，各有「結業證書範本」與「研習時數證明」兩個模板。舊的 `/o/<uuid>/…` 連結會轉到短網址。
 
 不要提交 `.env`、`.runtime`、資料庫備份、私人 PDF、使用者名單或測試截圖。repo 不含 demo 的資料庫與已產製檔案；其他人需 seed 新環境。
 
@@ -34,9 +34,11 @@ Web http://localhost:5173、API http://localhost:3001、Mailpit http://localhost
 | --- | --- |
 | apps/web/src/app/router.tsx、AppShell.tsx、session.tsx | 路由、頂部導覽外框、登入狀態 |
 | apps/web/src/features/landing | 公開首頁與真偽查詢入口 |
-| apps/web/src/features/templates/TemplateEditor.tsx | 設計器與 QR 位置控制 |
+| apps/web/src/features/templates/TemplateEditor.tsx | 模板設計器 |
 | apps/web/src/features/batches（CreateBatchPage、BatchDetailPage、NotifyPanel、lifecycle） | 名單、產製／通知、活動／證書操作 |
-| apps/web/src/features/verification/VerificationPage.tsx | 匿名驗證頁與分享 QR |
+| apps/web/src/features/verification（SerialCheckPage、DownloadPage） | 流水號查詢與收件人密碼下載 |
+| apps/web/src/features/settings/SettingsPage.tsx | 組織網址代稱 |
+| apps/api/src/batch-input.ts | 名單、多模板與流水號衝突檢查 |
 | apps/web/src/styles/tokens.css | 設計 token（見 DESIGN.md） |
 | apps/api/src/auth.ts | session／CSRF、啟用與密碼恢復 |
 | apps/api/src/routes.ts | 模板／匯入／產製／下載 API |
@@ -44,19 +46,20 @@ Web http://localhost:5173、API http://localhost:3001、Mailpit http://localhost
 | packages/contracts | 文件 schema、動態欄位與版面限制 |
 | packages/renderer | 共用 React 渲染、字型與 Chromium PDF |
 | packages/domain/src/jobs.ts | PDF／郵件工作、advisory lock、狀態提交 |
-| packages/domain/src/verification.ts | 效期計算與驗證 URL |
+| packages/domain/src/verification.ts | 效期計算 |
 | apps/worker | BullMQ、outbox dispatcher、重啟恢復 |
 | prisma/schema.prisma、migrations | 租戶複合 FK、不可變 trigger、資料模型 |
 
 ## 必須保留的不變條件
 
 - 所有工作人員資源同時檢查 organizationId、membership、permission；知道 UUID 不代表有權限。
-- PDF／模板版本／快照／證書血緣不可原地改寫；補發必須新證書、新編號、新 publicId。
+- PDF／模板版本／快照／證書血緣不可原地改寫；補發必須新證書、新 publicId；流水號預設沿用。
 - 修改生命週期先鎖活動，再寫資料與 audit；不要反向鎖定造成 deadlock。
 - PDF 渲染在 transaction 外，提交前重新檢查證書／活動狀態。禁止取消後的舊工作復活。
 - 發送與啟用是不同狀態；SMTP accepted 不等於送達；sending 中斷要 unknown，不能盲目重寄。
 - 有效性請用 certificateStatus，不要只看資料庫 status === valid。到期不需要 cron 改寫狀態。
-- QR 中的 URL 使用設定的 APP_ORIGIN 與系統 publicId，不接受收件人匯入值覆蓋。
+- 流水號在組織內只屬於一位收件人（DB exclusion constraint）；比較一律用正規化（大寫）後的值。
+- 下載密碼只存 argon2id 雜湊，SMTP 接受後才寫入；不要記錄或回傳明文。
 - 公開驗證只回傳明列欄位；禁止 spread Certificate、dataSnapshot 或 Recipient 直接公開。
 - AuditLog 無更新／刪除 API，資料庫 trigger 禁止覆寫；測試清理只允許隔離 _test DB。
 

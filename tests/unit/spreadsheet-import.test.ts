@@ -138,7 +138,7 @@ describe("Excel/CSV source parsing and safe reports", () => {
         ],
         createDefaultDocument(),
       ),
-    ).toThrow("列號");
+    ).toThrow("序號");
     const csv = encodeCsv([
       ["姓名", "錯誤"],
       [' =HYPERLINK("bad")', "第一行\n第二行"],

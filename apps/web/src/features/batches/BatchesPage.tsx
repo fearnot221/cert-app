@@ -26,7 +26,7 @@ export function BatchesPage() {
     12,
   );
   const canImport = permissions.includes("recipients.import");
-  const base = `/o/${organization.id}/batches`;
+  const base = `/${organization.slug}/batches`;
   const filtered = !!(search || status);
   return (
     <>

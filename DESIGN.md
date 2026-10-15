@@ -10,7 +10,7 @@
 
 ## 前端架構
 
-- 路由：React Router data router（`apps/web/src/app/router.tsx`）。公開頁面為 `/`、`/login`、`/activate`、`/reset-password`、`/verify/:publicId`；登入後為 `/me` 與 `/o/:orgId/{templates,templates/:id,batches,batches/new,batches/:id,deliveries,audit}`。舊網址 `/workspace`、`/certificates`、`/my-certificates` 轉址。
+- 路由：React Router data router（`apps/web/src/app/router.tsx`）。公開頁面為 `/`、`/login`、`/activate`、`/reset-password`、`/verify`、`/verify/:serial`、`/download`；登入後為 `/me` 與 `/:orgSlug/{templates,templates/:id,batches,batches/new,batches/:id,deliveries,audit,settings}`（例如 `/zhixing/templates`）。舊網址 `/o/:orgId/*`、`/workspace`、`/certificates`、`/my-certificates` 轉址。
 - 伺服器狀態：TanStack Query，一個快取以 API path 為 key（`src/lib/hooks.ts`）。任何寫入動作完成後會讓非 session 的快取失效，避免列表顯示舊資料。
 - 結構：`src/app`（session、外框、路由）、`src/features/<領域>`（auth、landing、templates、batches、records、recipient、verification）、`src/ui`（按鈕與回饋元件）、`src/lib`（API、格式化、型別）、`src/styles`（tokens 與各區樣式）。
 - 模板編輯器離開前若有未儲存變更，以 `useBlocker` 與 `beforeunload` 確認。
@@ -37,7 +37,7 @@
 
 - 下拉選單一律使用 `src/ui/Select.tsx`（WAI-ARIA select-only combobox），清單以站內樣式繪製：白底、18px 圓角、浮起時才有陰影，目前選項以黃色印記圓點標示，可用方向鍵、Home/End、字首搜尋與 Esc 操作；空間不足時向上展開。不再使用原生 `<select>`。
 - 桌面寬度保留捲軸空間（`scrollbar-gutter: stable`），切換長短頁面時版面不左右位移；平滑捲動只用於首頁錨點。模板編輯器高度剛好填滿導覽列以下的空間，訊息浮在畫布上方而不推動三欄。
-- 證書流水號格式為「前綴-補零序號」（預設 `CERT-000001`），每個組織各自遞增、只能往前，在「組織設定」以實際印出的大小預覽。驗證頁把證書編號放在第一個、以襯線大字顯示，方便與紙本比對。
+- 證書流水號由名單提供（組織內不可重複，NFKC＋大寫正規化）。查詢頁把流水號放在第一個、以襯線大字顯示，方便與紙本比對。「組織設定」只管理工作空間網址代稱。
 - 模板動態欄位分兩組：內建欄位（姓名、Email、證書流水號、組織名稱、活動名稱、發證日期）永遠存在、不能刪除；自訂欄位可新增、改名與刪除（仍被文字使用時不能刪）。圖層以欄位名稱顯示，例如〔課程時數〕。
 - 背景畫質：圖片背景以原尺寸無損（PNG）保存與嵌入證書，不縮圖、不再壓縮。PDF 背景取第 1 頁，以 `pdftocairo` 重繪成乾淨的單頁向量 PDF（去除腳本、表單與連結），產證時直接墊在證書底下，線條與文字放大仍清晰；編輯器與縮圖另用最高 300 DPI 的 PNG 預覽。
 - 手機寬度的收件人表格改為一人一張卡片：姓名在前，其後是帶標籤的狀態與操作。
