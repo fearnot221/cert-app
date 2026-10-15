@@ -101,3 +101,14 @@ Phase 1 的主要完整流程已以真實服務通過。啟用重發／密碼重
 - E2E：修正補發後輪詢的競態（舊狀態已是 generated，需等補發請求完成再輪詢）。
 
 本機驗證（Node 24.21.0 跑 Playwright；API／worker／vitest 於 Node 22）：38/38 integration（新增 2 項回歸，且確認未修正前兩項皆失敗）、24/24 unit／renderer、3/3 browser E2E 通過；typecheck、lint 通過。Chromium 以非 root 使用者執行，避免 sandbox 啟動失敗。遠端 CI 未以本機結果代替。
+
+## 2026-10-15 流水號、密碼下載、多模板與短網址
+
+- 序號從 1 開始（修正第一位顯示 2 的問題），migration 009 將既有活動的序號重新編為 1 起。
+- 證書流水號改由名單提供，組織內唯一；移除組織自動編號設定。
+- 一個活動可使用多個模板，每位收件人依「模板」欄套用。
+- 移除 PDF／模板／介面的 QR Code 驗證；通知信改附流水號與下載密碼，收件人在 `/download` 免登入下載。
+- 首頁查詢改為確認流水號是否存在與目前狀態，不顯示持有人資料。
+- 組織有可編輯的網址代稱（`/zhixing/templates`），舊 `/o/<uuid>/…` 轉址。
+
+本機驗證：43/43 integration、31/31 unit／renderer、4/4 browser E2E 通過；lint、typecheck、build 通過。migration 009 另以 migration 008 狀態的資料（含重複列號、小寫流水號、補發鏈）實測套用成功。

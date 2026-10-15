@@ -89,9 +89,9 @@ Docker／Coolify 與備份還原步驟見 `docs/DEPLOYMENT.md`。未設定正式
 
 活動明細已提供產製前編輯、取消活動、逐張撤銷／重新發放、版本與操作紀錄。補發產生新編號，保留舊 PDF 與快照；取消／撤銷後停止下載及排隊通知。操作方式、權限與寄送邊界見 [生命週期說明](docs/LIFECYCLE.md)。本次需執行 `pnpm db:generate` 與 `pnpm db:migrate`（004、005）。
 
-### 公開驗證、QR 與到期管理
+### 流水號、密碼下載與到期管理
 
-模板可加入驗證 QR；活動可設定到期日，管理員可調整期限並留下紀錄。驗證頁不需登入，區分有效／到期／撤銷／新版取代，僅公開遮罩姓名與最小資料。需套用 migration 006。詳見 [公開驗證說明](docs/PUBLIC_VERIFICATION.md)。正式對外使用前必須部署 HTTPS 並設定穩定 APP_ORIGIN，本機 localhost 不是 Internet 服務。
+證書流水號由名單提供，組織內不可重複；一個活動可同時使用多個模板，名單以「模板」欄指定。通知信附流水號與下載密碼，收件人在 `/download` 免登入下載 PDF；任何人可在首頁查詢流水號是否存在與目前狀態，不顯示持有人資料。QR Code 驗證已移除。需套用 migration 009。詳見 [流水號查詢與下載說明](docs/PUBLIC_VERIFICATION.md)。正式對外使用前必須部署 HTTPS 並設定穩定 APP_ORIGIN，本機 localhost 不是 Internet 服務。
 
 ### 接手與後續開發
 
