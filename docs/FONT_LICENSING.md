@@ -27,6 +27,14 @@ Google Fonts 提供可用於網站的字型與開發資源，但每個內建資�
 
 真實 Chromium 測試已驗證繁中／英數 glyph coverage、混合 Noto 與芫荽的 PDF 嵌入、Unicode mapping；瀏覽器 E2E 選擇芫荽後完成發布、預覽、worker 產證及私人下載。
 
+## 楷體與仿宋體（2026-10-27 新增）
+
+內建 cwTeX Q KaiZH Medium（選單「標楷風格（cwTeX 楷體）」）及 cwTeX Q FangsongZH Medium（「仿宋體（cwTeX）」），來源為[上游 v0.42](https://github.com/l10n-tw/cwtex-q-fonts-TTFs/tree/v0.42)，固定 commit `d0ec2e7b1ab4490ae3aa99f13089da0672b50e74`。未修改的 ZH 字型以 OFL 1.1 散布，授權、著作權、來源與 SHA-256 保存在 `packages/renderer/fonts/cwTeX-OFL.txt`、`cwTeX-SOURCE.txt`。
+
+楷體是標楷風格替代字型，並非 Windows DFKai-SB；兩者都不是 Microsoft 商業字型。僅提供標準字重，不合成粗體。ZH 版只含中文與部分標點，ASCII 英數明確搭配既有 Noto Sans TC；其他缺字會阻止產製，不靜默替換中文字形。網頁與 PDF 使用同一份固定 bytes，發布 manifest 記錄實際使用字型的 SHA-256 與版本，既有模板仍可照常渲染。
+
+上游在[專案說明](https://github.com/l10n-tw/cwtex-q-fonts#版權爭議)揭露歷史字形來源的版權爭議；OFL 檔是上游提供的授權聲明，並非額外權利保證。若組織要求特定商業標楷體／仿宋體，須另提供可供網站散布與伺服器嵌入的授權字型。
+
 ## 組織上傳（Phase 2，尚未提供）
 
 規劃支援 TTF、OTF、WOFF2。FontAsset 記錄 organizationId、family、weight、style、檔案 MIME／雜湊、版本、來源、license text/reference、上傳者、授權確認時間、可用／停用狀態。

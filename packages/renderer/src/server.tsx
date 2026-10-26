@@ -8,6 +8,8 @@ import { PDFDocument, PDFName, PDFArray, beginMarkedContent, endMarkedContent } 
 import {
   FONT_SHA256,
   IANSUI_SHA256,
+  CWTEX_FONTS,
+  type CwtexFamily,
   TemplateDocumentSchema,
   interpolateText,
   validateTemplateData,
@@ -18,6 +20,7 @@ import {
   CertificateView,
   RENDER_FONT_FAMILY,
   IANSUI_RENDER_FAMILY,
+  CWTEX_RENDER_FAMILIES,
 } from "./index";
 import { fitCertificateText } from "./layout";
 
@@ -27,6 +30,9 @@ export const DEFAULT_FONT_PATH = fileURLToPath(
 export const IANSUI_FONT_PATH = fileURLToPath(
   new URL("../fonts/Iansui-Regular.ttf", import.meta.url),
 );
+export const CWTEX_FONT_PATHS = Object.fromEntries(
+  Object.entries(CWTEX_FONTS).map(([family, font]) => [family, fileURLToPath(new URL(`../fonts/${font.file}`, import.meta.url))]),
+) as Record<CwtexFamily, string>;
 export { FONT_SHA256 } from "@cert/contracts";
 
 export interface RenderPdfOptions {
@@ -41,13 +47,17 @@ export interface RenderPdfOptions {
   fontPath?: string;
 }
 
-export function validateGlyphs(text: string, fontBytes: Buffer): void {
+export function validateGlyphs(text: string, fontBytes: Buffer, latinFallback?: Buffer): void {
   const font = fontkit.create(fontBytes);
+  const fallback = latinFallback ? fontkit.create(latinFallback) : undefined;
   if (!("hasGlyphForCodePoint" in font)) throw new Error("不支援字型集合檔案");
   const missing = [
     ...new Set(
       [...text].filter((character) => {
         if (/^[\n\r\t]$/.test(character)) return false;
+        // The OFL ZH fonts contain Chinese only; ASCII uses the pinned Noto font.
+        if (/^[\x20-\x7e]$/.test(character) && fallback && "hasGlyphForCodePoint" in fallback)
+          return !fallback.hasGlyphForCodePoint(character.codePointAt(0)!);
         return !font.hasGlyphForCodePoint(character.codePointAt(0)!);
       }),
     ),
@@ -82,10 +92,19 @@ async function buildMarkup(
     createHash("sha256").update(iansui).digest("hex") !== IANSUI_SHA256
   )
     throw new Error("芫荽字型完整性檢查失敗");
+  const cwtex: Partial<Record<CwtexFamily, Buffer>> = {};
+  for (const family of Object.keys(CWTEX_FONTS) as CwtexFamily[]) {
+    if (!document.elements.some((e) => e.fontFamily === family)) continue;
+    const font = await readFile(CWTEX_FONT_PATHS[family]);
+    if (createHash("sha256").update(font).digest("hex") !== CWTEX_FONTS[family].sha256)
+      throw new Error(`${CWTEX_FONTS[family].label}字型完整性檢查失敗`);
+    cwtex[family] = font;
+  }
   for (const element of document.elements)
     validateGlyphs(
       interpolateText(element.text, options.data),
-      element.fontFamily === "Iansui" ? iansui! : bytes,
+      cwtex[element.fontFamily as CwtexFamily] ?? (element.fontFamily === "Iansui" ? iansui! : bytes),
+      element.fontFamily in CWTEX_FONTS ? bytes : undefined,
     );
   const assetUrls: Record<string, string> = {};
   if (document.backgroundAssetId) {
@@ -113,6 +132,7 @@ async function buildMarkup(
     <CertificateView
       document={document}
       data={options.data}
+      cwtexUrls={Object.fromEntries(Object.entries(cwtex).map(([family, font]) => [family, `data:font/ttf;base64,${font.toString("base64")}`]))}
       iansuiUrl={
         iansui ? `data:font/ttf;base64,${iansui.toString("base64")}` : undefined
       }
@@ -176,6 +196,7 @@ export async function renderPdf(options: RenderPdfOptions): Promise<Buffer> {
       },
       [
         RENDER_FONT_FAMILY,
+        ...(Object.keys(CWTEX_FONTS) as CwtexFamily[]).filter((family) => template.elements.some((e) => e.fontFamily === family)).map((family) => CWTEX_RENDER_FAMILIES[family]),
         ...(template.elements.some((e) => e.fontFamily === "Iansui")
           ? [IANSUI_RENDER_FAMILY]
           : []),

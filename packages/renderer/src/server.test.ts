@@ -9,11 +9,15 @@ import {
   createDefaultDocument,
   FONT_SHA256,
   IANSUI_SHA256,
+  CWTEX_FONTS,
+  type CwtexFamily,
+  TemplateDocumentSchema,
 } from "@cert/contracts";
 import { CertificateView } from "./index";
 import {
   DEFAULT_FONT_PATH,
   IANSUI_FONT_PATH,
+  CWTEX_FONT_PATHS,
   renderPdf,
   underlayVectorBackground,
   validateGlyphs,
@@ -29,6 +33,21 @@ const data = {
 };
 
 describe("shared HTML and pinned font", () => {
+  for (const family of Object.keys(CWTEX_FONTS) as CwtexFamily[]) {
+    it(`pins ${family}, validates Chinese and ASCII, and rejects unsupported weights/glyphs`, async () => {
+      const bytes = await readFile(CWTEX_FONT_PATHS[family]);
+      expect(createHash("sha256").update(bytes).digest("hex")).toBe(CWTEX_FONTS[family].sha256);
+      const noto = await readFile(DEFAULT_FONT_PATH);
+      expect(() => validateGlyphs("繁體中文，臺灣證書；王小明 English 2026", bytes, noto)).not.toThrow();
+      expect(() => validateGlyphs("\u{10FFFF}", bytes, noto)).toThrow("字型缺字");
+      const document = createDefaultDocument();
+      document.elements[0]!.fontFamily = family;
+      document.elements[0]!.fontWeight = 400;
+      expect(TemplateDocumentSchema.safeParse(document).success).toBe(true);
+      document.elements[0]!.fontWeight = 700;
+      expect(TemplateDocumentSchema.safeParse(document).success).toBe(false);
+    });
+  }
   it("escapes interpolated HTML and blocks remote asset URLs", () => {
     const props = {
       document: createDefaultDocument(),
@@ -78,6 +97,21 @@ describe("shared HTML and pinned font", () => {
 describe.runIf(process.env.RENDERER_INTEGRATION === "1")(
   "Chromium PDF integration",
   () => {
+    for (const family of Object.keys(CWTEX_FONTS) as CwtexFamily[]) {
+      it(`embeds ${family} and Noto Latin text in a real PDF`, async () => {
+        const document = createDefaultDocument();
+        for (const element of document.elements) {
+          element.fontFamily = family;
+          element.fontWeight = 400;
+        }
+        const pdf = await renderPdf({ document, data });
+        const parsed = await PDFDocument.load(pdf);
+        expect(parsed.getPageCount()).toBe(1);
+        expect(pdf.toString("latin1")).toContain(family === "cwTeXKai" ? "cwTeXQKaiZH" : "cwTeXQFangsongZH");
+        expect(pdf.toString("latin1")).toContain("NotoSansTC");
+        expect(pdf.toString("latin1")).toContain("/ToUnicode");
+      }, 45000);
+    }
     it("embeds pinned Iansui alongside Noto and retains Unicode text", async () => {
       const bytes = await readFile(IANSUI_FONT_PATH);
       expect(createHash("sha256").update(bytes).digest("hex")).toBe(

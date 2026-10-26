@@ -2,6 +2,8 @@ import { useEffect, useRef, type CSSProperties } from "react";
 import {
   FONT_SHA256,
   IANSUI_SHA256,
+  CWTEX_FONTS,
+  type CwtexFamily,
   interpolateText,
   type CertificateData,
   type TemplateDocument,
@@ -12,12 +14,16 @@ export { fitCertificateText } from "./layout";
 export const RENDER_FONT_FAMILY = `CertificateNotoTC_${FONT_SHA256.slice(0, 12)}`;
 
 export const IANSUI_RENDER_FAMILY = `CertificateIansui_${IANSUI_SHA256.slice(0, 12)}`;
+export const CWTEX_RENDER_FAMILIES = Object.fromEntries(
+  Object.entries(CWTEX_FONTS).map(([family, font]) => [family, `Certificate${family}_${font.sha256.slice(0, 12)}`]),
+) as Record<CwtexFamily, string>;
 export interface CertificateViewProps {
   document: TemplateDocument;
   data: CertificateData;
   assetUrls: Record<string, string>;
   fontUrl: string;
   iansuiUrl?: string;
+  cwtexUrls?: Partial<Record<CwtexFamily, string>>;
   onLayoutError?: (errors: string[]) => void;
 }
 
@@ -40,6 +46,7 @@ export function CertificateView({
   assetUrls,
   fontUrl,
   iansuiUrl = "/api/fonts/iansui",
+  cwtexUrls = {},
   onLayoutError,
 }: CertificateViewProps) {
   const root = useRef<HTMLDivElement>(null);
@@ -51,6 +58,7 @@ export function CertificateView({
     assetUrls,
     fontUrl,
     iansuiUrl,
+    cwtexUrls,
   ]);
   const fontSource = trustedAssetUrl(fontUrl, "font");
   const backgroundSource = template.backgroundAssetId
@@ -71,6 +79,12 @@ export function CertificateView({
             `400 12pt "${IANSUI_RENDER_FAMILY}"`,
           );
           if (!loadedIansui.length) throw new Error("芫荽字型載入失敗");
+        }
+        for (const family of Object.keys(CWTEX_FONTS) as CwtexFamily[]) {
+          if (template.elements.some((e) => e.fontFamily === family)) {
+            const loaded = await window.document.fonts.load(`400 12pt "${CWTEX_RENDER_FAMILIES[family]}"`);
+            if (!loaded.length) throw new Error(`${CWTEX_FONTS[family].label}字型載入失敗`);
+          }
         }
         await window.document.fonts.ready;
         const images = [...(root.current?.querySelectorAll("img") ?? [])];
@@ -127,6 +141,9 @@ export function CertificateView({
       {template.elements.some((e) => e.fontFamily === "Iansui") && (
         <style>{`@font-face{font-family:"${IANSUI_RENDER_FAMILY}";src:url("${trustedAssetUrl(iansuiUrl, "font")}") format("truetype");font-weight:400;font-display:block;}`}</style>
       )}
+      {(Object.keys(CWTEX_FONTS) as CwtexFamily[]).filter((family) => template.elements.some((e) => e.fontFamily === family)).map((family) => (
+        <style key={family}>{`@font-face{font-family:"${CWTEX_RENDER_FAMILIES[family]}";src:url("${trustedAssetUrl(cwtexUrls[family] ?? `/api/fonts/${family}`, "font")}") format("truetype");font-weight:400;font-display:block;}`}</style>
+      ))}
       {backgroundSource && (
         <img
           src={trustedAssetUrl(backgroundSource, "image")}
@@ -151,7 +168,9 @@ export function CertificateView({
           height: `${element.height}mm`,
           transform: `rotate(${element.rotation}deg)`,
           transformOrigin: "center",
-          fontFamily: `"${element.fontFamily === "Iansui" ? IANSUI_RENDER_FAMILY : RENDER_FONT_FAMILY}"`,
+          fontFamily: element.fontFamily in CWTEX_RENDER_FAMILIES
+            ? `"${CWTEX_RENDER_FAMILIES[element.fontFamily as CwtexFamily]}", "${RENDER_FONT_FAMILY}"`
+            : `"${element.fontFamily === "Iansui" ? IANSUI_RENDER_FAMILY : RENDER_FONT_FAMILY}"`,
           fontSynthesis: "none",
           fontSize: `${element.fontSize}pt`,
           fontWeight: element.fontWeight,

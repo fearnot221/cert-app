@@ -16,6 +16,7 @@ import {
   MagnifyingGlassIcon,
 } from "@radix-ui/react-icons";
 import { CertificateView } from "@cert/renderer";
+import { CWTEX_FONTS } from "@cert/contracts";
 import { api, ApiError, orgPath, post } from "../../lib/api";
 import { useAction } from "../../lib/hooks";
 import type {
@@ -706,6 +707,7 @@ export function TemplateEditor({
                     options={[
                       { value: "Noto Sans TC", label: "Noto Sans TC" },
                       { value: "Iansui", label: "芫荽 Iansui" },
+                      ...Object.entries(CWTEX_FONTS).map(([value, font]) => ({ value, label: font.label })),
                     ]}
                   />
                 </label>
@@ -723,7 +725,7 @@ export function TemplateEditor({
                       }
                       options={[
                         { value: "400", label: "標準 400" },
-                        ...(selected.fontFamily !== "Iansui" ? [{ value: "700", label: "粗體 700" }] : []),
+                        ...(selected.fontFamily === "Noto Sans TC" ? [{ value: "700", label: "粗體 700" }] : []),
                       ]}
                     />
                   </label>

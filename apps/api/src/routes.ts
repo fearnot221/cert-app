@@ -15,13 +15,15 @@ import {
   FONT_SHA256,
   IANSUI_SHA256,
   IANSUI_VERSION,
+  CWTEX_FONTS,
+  type CwtexFamily,
   FONT_ASSET_VERSION,
   RENDERER_VERSION,
   withBuiltinFields,
   OrganizationSlugSchema,
   type TemplateDocument,
 } from "@cert/contracts";
-import { DEFAULT_FONT_PATH, IANSUI_FONT_PATH } from "@cert/renderer/server";
+import { DEFAULT_FONT_PATH, IANSUI_FONT_PATH, CWTEX_FONT_PATHS } from "@cert/renderer/server";
 import { authorize, userFor, fail, audit } from "./auth.js";
 import { config } from "@cert/config";
 import { renderVersionPdf } from "../../../packages/domain/src/rendering.js";
@@ -98,6 +100,11 @@ async function validateBatch(org: string, body: z.infer<typeof batchInput>, clie
   return { templates, ...(await checkRecords(client, org, templates, body)) };
 }
 export async function registerRoutes(app: FastifyInstance) {
+  for (const family of Object.keys(CWTEX_FONTS) as CwtexFamily[]) {
+    app.get(`/api/fonts/${family}`, async (_req, reply) =>
+      reply.type("font/ttf").send(await readFile(CWTEX_FONT_PATHS[family])),
+    );
+  }
   await registerLifecycleRoutes(app);
   await registerVerificationRoutes(app);
   let activePreviews = 0;
@@ -263,6 +270,9 @@ export async function registerRoutes(app: FastifyInstance) {
           rendererVersion: RENDERER_VERSION,
           assetManifest: {
             font: { version: FONT_ASSET_VERSION, sha256: FONT_SHA256 },
+            ...Object.fromEntries((Object.keys(CWTEX_FONTS) as CwtexFamily[])
+              .filter((family) => document.elements.some((e) => e.fontFamily === family))
+              .map((family) => [family, { version: `${family}-${CWTEX_FONTS[family].sha256.slice(0, 12)}`, sha256: CWTEX_FONTS[family].sha256 }])),
             ...(document.elements.some((e) => e.fontFamily === "Iansui")
               ? { iansui: { version: IANSUI_VERSION, sha256: IANSUI_SHA256 } }
               : {}),

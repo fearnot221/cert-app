@@ -17,9 +17,12 @@ import {
   createDefaultDocument,
   FONT_ASSET_VERSION,
   FONT_SHA256,
+  CWTEX_FONTS,
+  type CwtexFamily,
   type TemplateDocument,
 } from "@cert/contracts";
 import { buildApp } from "../../apps/api/src/server";
+import { renderVersionPdf } from "../../packages/domain/src/rendering";
 import { hashToken } from "../../apps/api/src/auth";
 
 const prefix = `integration-${randomUUID()}`;
@@ -2271,6 +2274,38 @@ describe('preview conflicts and notification retry', () => {
 });
 
 describe('certificate serial numbers, built-in fields and PDF backgrounds', () => {
+  it('serves pinned Kai/Fangsong, records their published manifest and renders previews', async () => {
+    for (const family of Object.keys(CWTEX_FONTS) as CwtexFamily[]) {
+      const font = await owner.request('GET', `/api/fonts/${family}`);
+      expect(font.statusCode).toBe(200);
+      expect(createHash('sha256').update(font.rawPayload).digest('hex')).toBe(CWTEX_FONTS[family].sha256);
+      const document = createDefaultDocument();
+      for (const element of document.elements) {
+        element.fontFamily = family;
+        element.fontWeight = 400;
+      }
+      const path = `/api/organizations/${orgA}`;
+      const template = await owner.request('POST', `${path}/templates`, { name: `${family} ${runSerial}`, document });
+      expect(template.statusCode, template.body).toBe(200);
+      const published = await owner.request('POST', `${path}/templates/${template.json().id}/publish`, {});
+      expect(published.statusCode, published.body).toBe(200);
+      const version = published.json();
+      expect(version.assetManifest[family]).toEqual({
+        version: `${family}-${CWTEX_FONTS[family].sha256.slice(0, 12)}`,
+        sha256: CWTEX_FONTS[family].sha256,
+      });
+      const created = await owner.request('POST', `${path}/batches`, {
+        templateVersionId: version.id, eventName: '楷體與仿宋產證', idempotencyKey: randomUUID(),
+        records: [{ rowNumber: 1, data: { recipient_name: '王小明', recipient_email: email(family), certificate_number: sn(family) } }],
+      });
+      expect(created.statusCode, created.body).toBe(200);
+      const row = await db.batchRow.findFirstOrThrow({ where: { batchId: created.json().id } });
+      const preview = await owner.request('POST', `${path}/batches/${created.json().id}/preview`, { rowId: row.id });
+      expect(preview.statusCode, preview.body.slice(0, 100)).toBe(200);
+      expect(preview.rawPayload.subarray(0, 5).toString()).toBe('%PDF-');
+      await expect(renderVersionPdf({ ...version, assetManifest: { font: { version: FONT_ASSET_VERSION, sha256: FONT_SHA256 }, background: null } }, orgA, {})).rejects.toThrow('字型版本資訊');
+    }
+  });
   it('takes serials from the list, numbers recipients from 1, and refuses duplicates, blanks and serials used elsewhere in the organization', async () => {
     const path = `/api/organizations/${orgA}/batches`;
     const checked = await owner.request('POST', `${path}/validate`, {

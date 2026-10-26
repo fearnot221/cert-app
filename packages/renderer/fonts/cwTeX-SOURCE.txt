@@ -1,0 +1,15 @@
+Upstream: https://github.com/l10n-tw/cwtex-q-fonts-TTFs
+Release: v0.42
+Commit: d0ec2e7b1ab4490ae3aa99f13089da0672b50e74
+Retrieved: 2026-10-27
+
+https://raw.githubusercontent.com/l10n-tw/cwtex-q-fonts-TTFs/d0ec2e7b1ab4490ae3aa99f13089da0672b50e74/ttf/cwTeXQKaiZH-Medium.ttf
+SHA-256: 616407aa442d4df823c12ac45db02eaeb07c2394184b2c1abe03c1e78facf60d
+
+https://raw.githubusercontent.com/l10n-tw/cwtex-q-fonts-TTFs/d0ec2e7b1ab4490ae3aa99f13089da0672b50e74/ttf/cwTeXQFangsongZH-Medium.ttf
+SHA-256: 14feb7ba0459a9ffb060daa1239e73f05ed0bbe7d14fc71c64aeafcfa80df69d
+
+Unmodified Chinese-only OFL 1.1 fonts; see cwTeX-OFL.txt for copyright and license.
+ASCII is rendered separately with the existing pinned Noto Sans TC font.
+The Kai font is an alternative Kai style, not Microsoft's DFKai-SB.
+Upstream provenance/history: https://github.com/l10n-tw/cwtex-q-fonts

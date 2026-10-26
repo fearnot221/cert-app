@@ -52,6 +52,13 @@ test("芫荽模板 → 批次 PDF → 通知信流水號與密碼 → 手機下�
   );
   await page.mouse.up();
   await expect(page.getByLabel("X 位置 mm")).not.toHaveValue("28");
+  for (const font of ["標楷風格（cwTeX 楷體）", "仿宋體（cwTeX）"]) {
+    await choose(page, "字型", font);
+    await expect(page.locator("[data-certificate-page]")).toHaveAttribute("data-layout-status", "ready");
+    await page.getByRole("combobox", { name: "字重", exact: true }).click();
+    await expect(page.getByRole("option", { name: "粗體 700", exact: true })).toHaveCount(0);
+    await page.keyboard.press("Escape");
+  }
   await choose(page, "字型", "芫荽 Iansui");
   await expect(page.locator("[data-certificate-page]")).toHaveAttribute(
     "data-layout-status",

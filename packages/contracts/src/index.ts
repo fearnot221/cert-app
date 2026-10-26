@@ -10,6 +10,20 @@ export const IANSUI_SHA256 =
   "7f1aa62e9dcbf40d0ce41a5d3f1e5ea602e66c295778ac6fefb6b84d8ed08bd5";
 export const IANSUI_VERSION = `iansui-${IANSUI_SHA256.slice(0, 12)}`;
 
+export const CWTEX_FONTS = {
+  cwTeXKai: {
+    label: "標楷風格（cwTeX 楷體）",
+    file: "cwTeXQKaiZH-Medium.ttf",
+    sha256: "616407aa442d4df823c12ac45db02eaeb07c2394184b2c1abe03c1e78facf60d",
+  },
+  cwTeXFangsong: {
+    label: "仿宋體（cwTeX）",
+    file: "cwTeXQFangsongZH-Medium.ttf",
+    sha256: "14feb7ba0459a9ffb060daa1239e73f05ed0bbe7d14fc71c64aeafcfa80df69d",
+  },
+} as const;
+export type CwtexFamily = keyof typeof CWTEX_FONTS;
+
 const safeKey = z
   .string()
   .regex(/^[a-z][a-z0-9_]{0,63}$/)
@@ -43,7 +57,7 @@ export const TextElementSchema = z
     width: finite.min(1).max(1000),
     height: finite.min(1).max(1000),
     rotation: finite.min(-180).max(180),
-    fontFamily: z.enum([FONT_FAMILY, "Iansui"]),
+    fontFamily: z.enum([FONT_FAMILY, "Iansui", "cwTeXKai", "cwTeXFangsong"]),
     fontSize: finite.min(6).max(200),
     minFontSize: finite.min(6).max(200),
     fontWeight: z.union([z.literal(400), z.literal(700)]),
@@ -53,8 +67,8 @@ export const TextElementSchema = z
   })
   .strict()
   .refine(
-    (value) => value.fontFamily !== "Iansui" || value.fontWeight === 400,
-    { message: "芫荽僅提供標準 400 字重", path: ["fontWeight"] },
+    (value) => value.fontFamily === FONT_FAMILY || value.fontWeight === 400,
+    { message: "此字型僅提供標準 400 字重", path: ["fontWeight"] },
   )
   .refine((value) => value.minFontSize <= value.fontSize, {
     message: "最小字級不能大於設定字級",

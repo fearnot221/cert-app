@@ -1,5 +1,7 @@
 # Bundled Noto Sans TC font
 
+Additional bundled fonts: cwTeX Q KaiZH Medium and cwTeX Q FangsongZH Medium, pinned to upstream v0.42. See `cwTeX-SOURCE.txt` and `cwTeX-OFL.txt`; these Chinese-only fonts use the existing Noto font for ASCII. The Kai font is an alternative Kai style, not Microsoft DFKai-SB. See `docs/FONT_LICENSING.md` for provenance and the upstream copyright-history notice.
+
 The unmodified variable TTF is bundled so the editor and server use identical bytes. It supports Latin and Traditional Chinese. The template schema currently exposes verified weights 400 and 700; it does not advertise a Canva font connection or user font uploads.
 
 - Source: Google Fonts' official `google/fonts` repository, `ofl/notosanstc/NotoSansTC[wght].ttf`.
