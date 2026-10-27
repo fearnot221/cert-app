@@ -30,6 +30,7 @@ import { Button } from "../../ui/Button";
 import { Select } from "../../ui/Select";
 import { previewDataFor } from "./previewData";
 import { FieldsPanel } from "./FieldsPanel";
+import { alignDraggedElement, type AlignmentGuide } from "./alignment";
 import { withBuiltinFields } from "@cert/contracts";
 
 const MM = 96 / 25.4;
@@ -72,6 +73,7 @@ export function TemplateEditor({
     template.document.elements[0]?.id ?? null,
   );
   const [scale, setScale] = useState(0.6);
+  const [guides, setGuides] = useState<AlignmentGuide[]>([]);
   const [layoutErrors, setLayoutErrors] = useState<string[]>([]);
   const [conflict, setConflict] = useState(false);
   const [qualityWarning, setQualityWarning] = useState("");
@@ -231,6 +233,7 @@ export function TemplateEditor({
     element: TextElement,
   ) => {
     setSelectedId(element.id);
+    setGuides([]);
     if (!canWrite || event.button !== 0) return;
     event.currentTarget.setPointerCapture(event.pointerId);
     drag.current = {
@@ -246,28 +249,16 @@ export function TemplateEditor({
     if (!drag.current || drag.current.pointerId !== event.pointerId) return;
     const current = drag.current;
     const element = document.elements.find((item) => item.id === current.id)!;
-    updateElement(current.id, {
-      x:
-        Math.round(
-          Math.max(
-            0,
-            Math.min(
-              document.widthMm - element.width,
-              current.x + (event.clientX - current.startX) / (MM * scale),
-            ),
-          ) * 10,
-        ) / 10,
-      y:
-        Math.round(
-          Math.max(
-            0,
-            Math.min(
-              document.heightMm - element.height,
-              current.y + (event.clientY - current.startY) / (MM * scale),
-            ),
-          ) * 10,
-        ) / 10,
-    });
+    const aligned = alignDraggedElement(document, element, {
+      x: current.x + (event.clientX - current.startX) / (MM * scale),
+      y: current.y + (event.clientY - current.startY) / (MM * scale),
+    }, 5 / (MM * scale));
+    setGuides(aligned.guides);
+    updateElement(current.id, { x: aligned.x, y: aligned.y });
+  };
+  const endDrag = () => {
+    drag.current = null;
+    setGuides([]);
   };
   const upload = async (file: File) => {
     await action.run(async () => {
@@ -507,12 +498,9 @@ export function TemplateEditor({
                       }}
                       onPointerDown={(event) => startDrag(event, element)}
                       onPointerMove={moveDrag}
-                      onPointerUp={() => {
-                        drag.current = null;
-                      }}
-                      onPointerCancel={() => {
-                        drag.current = null;
-                      }}
+                      onPointerUp={endDrag}
+                      onPointerCancel={endDrag}
+                      onLostPointerCapture={endDrag}
                       onKeyDown={(event) => {
                         if (
                           !canWrite ||
@@ -559,11 +547,21 @@ export function TemplateEditor({
                     </button>
                   ))}
                 </div>
+                {guides.length > 0 && (
+                  <svg className="alignment-guides" viewBox={`0 0 ${document.widthMm} ${document.heightMm}`} aria-hidden="true">
+                    {guides.map(({ axis, position }) => (
+                      <line key={axis} data-alignment-axis={axis}
+                        x1={axis === "x" ? position : 0} y1={axis === "y" ? position : 0}
+                        x2={axis === "x" ? position : document.widthMm} y2={axis === "y" ? position : document.heightMm}
+                        vectorEffect="non-scaling-stroke" />
+                    ))}
+                  </svg>
+                )}
               </div>
             </div>
           </div>
           <div className="canvas-bottom">
-            <span>拖曳文字移動 · 方向鍵微調 1 mm</span>
+            <span>拖曳時自動對齊畫布與其他元素 · 方向鍵微調 1 mm</span>
             <div className="zoom-control">
               <MagnifyingGlassIcon />
               <Select
